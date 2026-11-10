@@ -164,3 +164,22 @@ LITESURFACE-001 全部需求（8 条）在既定验证口径（最简验证：�
 删除评审编号元话语（"code review F1/F3/F4"）、历史叙述（"previously propagated"）、SDD 标签（"implementation-period"）与代码自述式注释；保留防回归 WHY 注释（双表拒绝理由/指针同一性理由/环形复用防双 delete/锁外回调理由/饱和理由）。
 
 回归：SP 8/8、默认 10/10、ASan 167/0、I0 0 缺失（修复+清理后复验）。
+
+## 11. 圈复杂度检查记录（代码评审轮）
+
+工具：lizard（NLOC + CCN）。门限：函数 NLOC ≤ 50、CCN ≤ 10。
+
+### 重构（示例，两处违规 → 全合规）
+
+| 函数 | 重构前 | 重构后 | 手法 |
+|------|--------|--------|------|
+| `Run()` | NLOC=113 | **12**（编排器） | 按场景拆为 RunBasics / RunFreshWrapperChecks / RunRgbFlushDetach / RunNv12Ring / RunRingCrossingInUse / RunTeardown |
+| `ProducerThread()` | NLOC=95, CCN=15 | **44, CCN=10** | 5 个 job case 提取为 Handle* 函数；合并冗余 case（JOB_S2_SETUP_ATTACH_FIRST 并入 JOB_S2_ATTACH arg=0） |
+
+重构后示例全部函数 NLOC ≤ 44、CCN ≤ 10；行为等价（ASan 167/0 复验）。
+
+### 库代码结论
+
+- 新增函数全部合规（最大 AttachBuffer NLOC=35/CCN=7）
+- `SurfaceImpl::Init`（NLOC=47）与 `BufferQueue::ReleaseBuffer`（NLOC=44/CCN=10）：**既有函数受 I0 约束豁免重构**（新增仅为门控包裹/前置分支，重排既有语句将破坏"预处理输出纯追加"不变式）
+- `SurfaceBufferImpl::SetData`（CCN=11）：**基线原有函数**，本需求未改动（I0 已证），豁免

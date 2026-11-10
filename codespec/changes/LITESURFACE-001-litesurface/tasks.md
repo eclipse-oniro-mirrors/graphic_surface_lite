@@ -52,3 +52,4 @@
 
 | T21 | 帧级格式标签（评审演进：uint32 开放集合 → 封闭四格式枚举+校验） | 完成 | SetBufferFormat/GetBufferFormat + SurfaceBufferFormat 枚举（surface_type.h）；S0-S3 断言升级；ASan 167/0；I0 复验 0 缺失 |
 | T22 | 安全检视：F1-F4 修复（attach 来源校验/示例空指针/累加饱和/代理门控）+ F5-F10 文档化 + 注释清理 | 完成 | 回归全绿 |
+| T23 | 圈复杂度检查与优化：示例 Run/ProducerThread 拆分（113→12、95/CCN15→44/CCN10），库代码合规或 I0 豁免 | 完成 | lizard 复测全合规，ASan 167/0 |

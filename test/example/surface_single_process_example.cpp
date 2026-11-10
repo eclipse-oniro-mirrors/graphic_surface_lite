@@ -226,8 +226,7 @@ enum JobType {
     JOB_NONE = 0,
     JOB_S1_SETUP_ATTACH,
     JOB_S1_FLUSH_DETACH,
-    JOB_S2_SETUP_ATTACH_FIRST,
-    JOB_S2_ATTACH,
+    JOB_S2_ATTACH,      // arg = frame number; slot = arg % RING_NUM (0 = first frame)
     JOB_S2_DETACH_ALL,
     JOB_S3_SETUP_ATTACH,
     JOB_S3_DETACH_INUSE,
@@ -300,6 +299,88 @@ int32_t SetupNv12Wrapper(int slotIdx, int frameNo)
     return g_hal.producer->AttachBuffer(g_hal.ringWrappers[slotIdx]);
 }
 
+/* -------------------------------------------------- producer (HAL) handlers */
+int32_t HandleRgbSetupAttach()
+{
+    // Single-segment RGB frame: chunk 0 identity view.
+    SurfaceDataChunk chunk = MakeChunk(g_hal.rgbSlot.mem, g_hal.rgbSlot.size, 0);
+    int32_t ret = g_hal.rgbWrapper->SetChunk(0, chunk);  // overwrite fresh wrapper slot
+    CHECK(ret == 0, "S1: SetChunk overwrite single segment");
+    g_hal.rgbWrapper->SetSize(static_cast<uint32_t>(g_hal.rgbSlot.size));
+    // RGB is out of the closed four-format domain: the tag stays NONE
+    // (surface-level format applies), demonstrating the default path.
+    return g_hal.producer->AttachBuffer(g_hal.rgbWrapper);
+}
+
+int32_t HandleRgbFlushDetach()
+{
+    // Buffer is queued (FLUSH) and has not been acquired: detach takes effect
+    // synchronously.
+    int32_t ret = g_hal.producer->DetachBuffer(g_hal.rgbWrapper);
+    if (ret == SURFACE_ERROR_OK) {
+        ReturnDriverMemory(g_hal.rgbWrapper);
+    }
+    return ret;
+}
+
+int32_t HandleRingDetachAll()
+{
+    // Stream stop: all ring wrappers are idle (RELEASE).
+    int32_t ret = SURFACE_ERROR_OK;
+    for (int i = 0; i < RING_NUM; i++) {
+        int32_t r = g_hal.producer->DetachBuffer(g_hal.ringWrappers[i]);
+        CHECK(r == SURFACE_ERROR_OK, "S2: idle detach at stream stop");
+        if (r != SURFACE_ERROR_OK) {
+            ret = r;
+        }
+        ReturnDriverMemory(g_hal.ringWrappers[i]);
+        g_hal.detachedCount++;
+    }
+    return ret;
+}
+
+int32_t HandleRingCrossingSetupAttach()
+{
+    // Ring buffer frame crossing two segments of one driver block: logical data
+    // = [mid..end] (chunk 0) followed by [0..mid) (chunk 1).
+    AllocDriverMem(&g_hal.ring2Slot, Y_SIZE);
+    g_hal.ring2Mid = Y_SIZE / 2;
+    SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer();
+    CHECK(wrapper != nullptr, "S3: CreateSurfaceBuffer");
+    SurfaceDataChunk head;
+    head.virAddr = static_cast<char*>(g_hal.ring2Slot.mem) + g_hal.ring2Mid;
+    head.phyAddr = SimPhyAddr(head.virAddr);
+    head.size = Y_SIZE - static_cast<uint32_t>(g_hal.ring2Mid);
+    head.stride = head.size;
+    head.planeId = 0;
+    SurfaceDataChunk tail;
+    tail.virAddr = g_hal.ring2Slot.mem;
+    tail.phyAddr = SimPhyAddr(tail.virAddr);
+    tail.size = static_cast<uint32_t>(g_hal.ring2Mid);
+    tail.stride = tail.size;
+    tail.planeId = 0;
+    CHECK(wrapper->SetChunk(0, head) == 0, "S3: SetChunk head segment");
+    CHECK(wrapper->SetChunk(1, tail) == 0, "S3: SetChunk tail segment");
+    wrapper->SetSize(Y_SIZE);
+    wrapper->SetBufferFormat(SURFACE_BUFFER_FORMAT_H264);  // per-frame format tag
+    wrapper->SetInt32(DRIVER_BUF_ID_KEY, 42);
+    g_hal.ring2Wrapper = wrapper;
+    return g_hal.producer->AttachBuffer(wrapper);
+}
+
+int32_t HandleRingCrossingDetachInUse()
+{
+    // Consumer still holds the buffer (ACQUIRED): expect IN_USE and record it
+    // in the pending recycle table.
+    int32_t ret = g_hal.producer->DetachBuffer(g_hal.ring2Wrapper);
+    if (ret == SURFACE_ERROR_BUFFER_IN_USE) {
+        pthread_mutex_lock(&g_hal.lock);
+        g_hal.pendingRecycle[g_hal.pendingCount++] = g_hal.ring2Wrapper;
+        pthread_mutex_unlock(&g_hal.lock);
+    }
+    return ret;
+}
+
 void* ProducerThread(void*)
 {
     for (;;) {
@@ -312,85 +393,24 @@ void* ProducerThread(void*)
         pthread_mutex_unlock(&g_jobLock);
         int32_t ret = -1;
         switch (type) {
-            case JOB_S1_SETUP_ATTACH: {
-                // Single-segment RGB frame: chunk 0 identity view.
-                SurfaceDataChunk chunk = MakeChunk(g_hal.rgbSlot.mem, g_hal.rgbSlot.size, 0);
-                ret = g_hal.rgbWrapper->SetChunk(0, chunk);  // overwrite fresh wrapper slot
-                CHECK(ret == 0, "S1: SetChunk overwrite single segment");
-                g_hal.rgbWrapper->SetSize(static_cast<uint32_t>(g_hal.rgbSlot.size));
-                // RGB is out of the closed four-format domain: the tag stays NONE
-                // (surface-level format applies), demonstrating the default path.
-                ret = g_hal.producer->AttachBuffer(g_hal.rgbWrapper);
+            case JOB_S1_SETUP_ATTACH:
+                ret = HandleRgbSetupAttach();
                 break;
-            }
-            case JOB_S1_FLUSH_DETACH: {
-                // Buffer is queued (FLUSH) and has not been acquired: detach
-                // takes effect synchronously.
-                ret = g_hal.producer->DetachBuffer(g_hal.rgbWrapper);
-                if (ret == SURFACE_ERROR_OK) {
-                    ReturnDriverMemory(g_hal.rgbWrapper);
-                }
-                break;
-            }
-            case JOB_S2_SETUP_ATTACH_FIRST:
-                ret = SetupNv12Wrapper(0, 0);
+            case JOB_S1_FLUSH_DETACH:
+                ret = HandleRgbFlushDetach();
                 break;
             case JOB_S2_ATTACH:
                 ret = SetupNv12Wrapper(arg % RING_NUM, arg);
                 break;
-            case JOB_S2_DETACH_ALL: {
-                // Stream stop: all ring wrappers are idle (RELEASE).
-                ret = SURFACE_ERROR_OK;
-                for (int i = 0; i < RING_NUM; i++) {
-                    int32_t r = g_hal.producer->DetachBuffer(g_hal.ringWrappers[i]);
-                    CHECK(r == SURFACE_ERROR_OK, "S2: idle detach at stream stop");
-                    if (r != SURFACE_ERROR_OK) {
-                        ret = r;
-                    }
-                    ReturnDriverMemory(g_hal.ringWrappers[i]);
-                    g_hal.detachedCount++;
-                }
+            case JOB_S2_DETACH_ALL:
+                ret = HandleRingDetachAll();
                 break;
-            }
-            case JOB_S3_SETUP_ATTACH: {
-                // Ring buffer frame crossing two segments of one driver block:
-                // logical data = [mid..end] (chunk 0) followed by [0..mid) (chunk 1).
-                AllocDriverMem(&g_hal.ring2Slot, Y_SIZE);
-                g_hal.ring2Mid = Y_SIZE / 2;
-                SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer();
-                CHECK(wrapper != nullptr, "S3: CreateSurfaceBuffer");
-                SurfaceDataChunk head;
-                head.virAddr = static_cast<char*>(g_hal.ring2Slot.mem) + g_hal.ring2Mid;
-                head.phyAddr = SimPhyAddr(head.virAddr);
-                head.size = Y_SIZE - static_cast<uint32_t>(g_hal.ring2Mid);
-                head.stride = head.size;
-                head.planeId = 0;
-                SurfaceDataChunk tail;
-                tail.virAddr = g_hal.ring2Slot.mem;
-                tail.phyAddr = SimPhyAddr(tail.virAddr);
-                tail.size = static_cast<uint32_t>(g_hal.ring2Mid);
-                tail.stride = tail.size;
-                tail.planeId = 0;
-                CHECK(wrapper->SetChunk(0, head) == 0, "S3: SetChunk head segment");
-                CHECK(wrapper->SetChunk(1, tail) == 0, "S3: SetChunk tail segment");
-                wrapper->SetSize(Y_SIZE);
-                wrapper->SetBufferFormat(SURFACE_BUFFER_FORMAT_H264);  // per-frame format tag
-                wrapper->SetInt32(DRIVER_BUF_ID_KEY, 42);
-                g_hal.ring2Wrapper = wrapper;
-                ret = g_hal.producer->AttachBuffer(wrapper);
+            case JOB_S3_SETUP_ATTACH:
+                ret = HandleRingCrossingSetupAttach();
                 break;
-            }
-            case JOB_S3_DETACH_INUSE: {
-                // Consumer still holds the buffer (ACQUIRED): expect IN_USE and
-                // record it in the pending recycle table.
-                ret = g_hal.producer->DetachBuffer(g_hal.ring2Wrapper);
-                if (ret == SURFACE_ERROR_BUFFER_IN_USE) {
-                    pthread_mutex_lock(&g_hal.lock);
-                    g_hal.pendingRecycle[g_hal.pendingCount++] = g_hal.ring2Wrapper;
-                    pthread_mutex_unlock(&g_hal.lock);
-                }
+            case JOB_S3_DETACH_INUSE:
+                ret = HandleRingCrossingDetachInUse();
                 break;
-            }
             default:
                 break;
         }
@@ -430,33 +450,41 @@ void VerifyNv12Frame(SurfaceBuffer* buffer, int frameNo)
     CHECK(buffer->GetChunk(2, yChunk) == -1, "S2: GetChunk beyond count rejected");
 }
 
-int Run()
+/* --------------------------------------------------------------- scenarios */
+Surface* g_consumerSurface = nullptr;
+Surface* g_producerSurface = nullptr;
+uint64_t g_surfaceId = 0;
+pthread_t g_producerThread;
+
+void RunBasics()
 {
-    /* -------------------------------------------------------------- setup */
-    Surface* consumerSurface = Surface::CreateSurface();
-    CHECK(consumerSurface != nullptr, "S0: CreateSurface");
-    uint64_t surfaceId = consumerSurface->GetSurfaceId();
-    CHECK(surfaceId != 0, "S0: auto allocated surface id");
-    consumerSurface->RegisterConsumerListener(g_consumerListener);
+    g_consumerSurface = Surface::CreateSurface();
+    CHECK(g_consumerSurface != nullptr, "S0: CreateSurface");
+    g_surfaceId = g_consumerSurface->GetSurfaceId();
+    CHECK(g_surfaceId != 0, "S0: auto allocated surface id");
+    g_consumerSurface->RegisterConsumerListener(g_consumerListener);
 
-    // Format round trips (NV12/NV21 existing constants, JPEG/H264 new constants).
-    consumerSurface->SetFormat(IMAGE_PIXEL_FORMAT_NV21);
-    CHECK(consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV21, "S0: NV21 round trip");
-    consumerSurface->SetFormat(IMAGE_PIXEL_FORMAT_NV12);
-    CHECK(consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV12, "S0: NV12 round trip");
+    // Surface-level format round trips (NV12/NV21 existing constants).
+    g_consumerSurface->SetFormat(IMAGE_PIXEL_FORMAT_NV21);
+    CHECK(g_consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV21, "S0: NV21 round trip");
+    g_consumerSurface->SetFormat(IMAGE_PIXEL_FORMAT_NV12);
+    CHECK(g_consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV12, "S0: NV12 round trip");
 
-    Surface* producerSurface = Surface::CreateSurfaceAsProducer(surfaceId);
-    CHECK(producerSurface != nullptr, "S0: CreateSurfaceAsProducer by id");
-    CHECK(Surface::CreateSurfaceAsProducer(surfaceId + 12345) == nullptr,
+    g_producerSurface = Surface::CreateSurfaceAsProducer(g_surfaceId);
+    CHECK(g_producerSurface != nullptr, "S0: CreateSurfaceAsProducer by id");
+    CHECK(Surface::CreateSurfaceAsProducer(g_surfaceId + 12345) == nullptr,
           "S0: unknown surface id rejected");
-    CHECK(SurfaceUtils::GetInstance()->GetSurface(surfaceId) == consumerSurface,
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(g_surfaceId) == g_consumerSurface,
           "S0: registry returns the consumer surface");
-    producerSurface->RegisterProducerListener(g_producerListener);
-
+    g_producerSurface->RegisterProducerListener(g_producerListener);
     // Single process: internal allocation is unavailable (V10).
-    CHECK(producerSurface->RequestBuffer() == nullptr, "S0: RequestBuffer unavailable in SP mode");
+    CHECK(g_producerSurface->RequestBuffer() == nullptr, "S0: RequestBuffer unavailable in SP mode");
+}
 
-    // Fresh wrapper defaults: legacy synthesized single-chunk view.
+void RunFreshWrapperChecks()
+{
+    // Fresh wrapper defaults: legacy synthesized single-chunk view + closed
+    // format domain validation.
     SurfaceBuffer* fresh = SurfaceBuffer::CreateSurfaceBuffer();
     CHECK(fresh != nullptr, "S0: CreateSurfaceBuffer");
     CHECK(fresh->GetChunkCount() == 1, "S0: fresh wrapper chunk count defaults to 1");
@@ -465,7 +493,6 @@ int Run()
     SurfaceDataChunk synth;
     CHECK(fresh->GetChunk(0, synth) == 0, "S0: fresh wrapper synthesizes chunk 0");
     CHECK(synth.virAddr == nullptr && synth.size == 1024, "S0: synthesized chunk content");
-    // Buffer-level format tag: closed domain, validation, NONE default.
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: fresh wrapper format defaults to NONE");
     CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_JPEG) == 0, "S0: set JPEG tag");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_JPEG, "S0: JPEG tag round trip");
@@ -476,30 +503,32 @@ int Run()
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: rejected writes leave tag unchanged");
     CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_NONE) == 0, "S0: clear tag back to NONE");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: tag cleared");
-    g_hal.producer = producerSurface;
+    g_hal.producer = g_producerSurface;
     g_hal.rgbWrapper = fresh;  // reused by S1 (attached there, never leaked)
+    pthread_create(&g_producerThread, nullptr, ProducerThread, nullptr);
+}
 
-    pthread_t producerThread;
-    pthread_create(&producerThread, nullptr, ProducerThread, nullptr);
-
-    /* ------------------------------------------------- S1: RGB + FLUSH detach */
+void RunRgbFlushDetach()
+{
     AllocDriverMem(&g_hal.rgbSlot, 64 * 1024);  // wearable RGB frame
     int32_t ret = -1;
     SubmitJob(JOB_S1_SETUP_ATTACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S1: attach RGB single-segment buffer");
     g_available = false;  // not consumed on purpose
-
     SubmitJob(JOB_S1_FLUSH_DETACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S1: queued (FLUSH) detach is synchronous");
     CHECK(g_hal.rgbSlot.freed, "S1: driver memory returned by HAL call stack");
+}
 
-    /* --------------------------------- S2: NV12 ring reuse (3 slots x 6 frames) */
+void RunNv12Ring()
+{
+    int32_t ret = -1;
     g_released = false;
-    SubmitJob(JOB_S2_SETUP_ATTACH_FIRST, 0, &ret);
+    SubmitJob(JOB_S2_ATTACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S2: first NV12 attach");
     for (int frameNo = 1; frameNo < RING_FRAMES; frameNo++) {
         DemoWait(&g_available);
-        SurfaceBuffer* buffer = consumerSurface->AcquireBuffer();
+        SurfaceBuffer* buffer = g_consumerSurface->AcquireBuffer();
         CHECK(buffer != nullptr, "S2: acquire NV12 frame");
         if (buffer == nullptr) {
             break;
@@ -507,17 +536,17 @@ int Run()
         // The acquire in iteration N consumes the frame attached in iteration N-1
         // (strict producer-consumer ping-pong).
         VerifyNv12Frame(buffer, frameNo - 1);
-        consumerSurface->ReleaseBuffer(buffer);
+        g_consumerSurface->ReleaseBuffer(buffer);
         DemoWait(&g_released);
         // Ring reuse: producer re-attaches the idle wrapper of this slot.
         SubmitJob(JOB_S2_ATTACH, frameNo, &ret);
         CHECK(ret == SURFACE_ERROR_OK, "S2: re-attach idle wrapper (ring reuse)");
     }
     DemoWait(&g_available);
-    SurfaceBuffer* lastFrame = consumerSurface->AcquireBuffer();
+    SurfaceBuffer* lastFrame = g_consumerSurface->AcquireBuffer();
     CHECK(lastFrame != nullptr, "S2: acquire last NV12 frame");
     VerifyNv12Frame(lastFrame, RING_FRAMES - 1);
-    consumerSurface->ReleaseBuffer(lastFrame);
+    g_consumerSurface->ReleaseBuffer(lastFrame);
     DemoWait(&g_released);
     CHECK(g_hal.releasedRingCount == RING_FRAMES, "S2: OnBufferReleased fired per frame");
     SubmitJob(JOB_S2_DETACH_ALL, 0, &ret);
@@ -526,12 +555,15 @@ int Run()
     for (int i = 0; i < RING_NUM; i++) {
         CHECK(g_hal.ringSlots[i].freed, "S2: ring driver memory returned");
     }
+}
 
-    /* ----------------- S3: ring crossing two segments + IN_USE + pending table */
+void RunRingCrossingInUse()
+{
+    int32_t ret = -1;
     SubmitJob(JOB_S3_SETUP_ATTACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S3: attach ring-crossing H264 frame");
     DemoWait(&g_available);
-    SurfaceBuffer* ring2 = consumerSurface->AcquireBuffer();
+    SurfaceBuffer* ring2 = g_consumerSurface->AcquireBuffer();
     CHECK(ring2 != nullptr, "S3: acquire ring-crossing frame");
     CHECK(ring2->GetChunkCount() == 2, "S3: two segments");
     SurfaceDataChunk c0;
@@ -545,24 +577,35 @@ int Run()
     CHECK(ring2->GetTotalDataSize() == Y_SIZE, "S3: total data size");
     CHECK(ring2->GetVirAddr() == nullptr, "S3: legacy view invalidated");
     CHECK(ring2->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S3: per-frame H264 format tag");
-
     SubmitJob(JOB_S3_DETACH_INUSE, 0, &ret);
     CHECK(ret == SURFACE_ERROR_BUFFER_IN_USE, "S3: detach in ACQUIRED returns IN_USE");
     CHECK(g_hal.pendingCount == 1, "S3: buffer recorded in pending recycle table");
     g_released = false;
-    consumerSurface->ReleaseBuffer(ring2);
+    g_consumerSurface->ReleaseBuffer(ring2);
     DemoWait(&g_released);
     // OnBufferReleased hit the pending table: detached + driver memory returned.
     CHECK(g_hal.pendingCount == 0, "S3: pending table drained");
     CHECK(g_hal.ring2Slot.freed, "S3: driver memory returned via OnBufferReleased");
+}
 
-    /* ------------------------------------------------------------ teardown */
+void RunTeardown()
+{
     SubmitJob(JOB_QUIT, 0, nullptr);
-    pthread_join(producerThread, nullptr);
-    delete producerSurface;   // proxy: shares the queue, does not delete it
-    delete consumerSurface;  // owns the queue; attachList_ must be empty by now
-    CHECK(SurfaceUtils::GetInstance()->GetSurface(surfaceId) == nullptr,
+    pthread_join(g_producerThread, nullptr);
+    delete g_producerSurface;   // proxy: shares the queue, does not delete it
+    delete g_consumerSurface;  // owns the queue; attachList_ must be empty by now
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(g_surfaceId) == nullptr,
           "S4: surface unregistered on destruction");
+}
+
+int Run()
+{
+    RunBasics();
+    RunFreshWrapperChecks();
+    RunRgbFlushDetach();
+    RunNv12Ring();
+    RunRingCrossingInUse();
+    RunTeardown();
 
     printf("\n==== surface_lite single process example: %d passed, %d failed ====\n",
            g_pass, g_fail);
