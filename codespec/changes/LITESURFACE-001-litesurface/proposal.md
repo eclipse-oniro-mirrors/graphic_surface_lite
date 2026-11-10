@@ -37,11 +37,11 @@
 | F-01 | 全局 Surface ID 注册中心 | innerkits 内部类 `SurfaceUtils`：消费端 SurfaceImpl 构造自动注册、析构自动注销；ID 编码 `PID<<32 \| counter` | 需求 2 |
 | F-02 | 生产者按 ID 创建 Surface | kits 层 `Surface::CreateSurfaceAsProducer(uint64_t id)`；单进程本地查表建共享 BufferQueue 的代理；跨进程返回 `nullptr` 并提示走既有通路（`GetSurface(id)` + `WriteIoIpcIo`/`GenericSurfaceByIpcIo`）——**跨进程接口面零新增**（评审定论：撤销原基线的 (id, sid) 重载） | 需求 2 |
 | F-03 | HAL 自构 Buffer 工厂 | `SurfaceBuffer::CreateSurfaceBuffer()` 纯声明，实现在 `frameworks/surface_buffer_impl_ex.cpp` 匿名命名空间 `SurfaceBufferImplEx`（override `SetSize` 解除容量校验） | 需求 3 |
-| F-04 | 多段数据模型 | `SurfaceDataChunk{virAddr, phyAddr, size, stride, planeId}`，`SetChunk/GetChunk/GetChunkCount/GetTotalDataSize`；单段与主内存接口恒等、多段主接口返回失效值（`@deprecated`）；地址写入单一入口 `SetChunk` | 需求 7 |
+| F-04 | 多段数据模型 | `SurfaceDataChunk{virAddr, phyAddr, size, stride, planeId}`，`SetChunk/GetChunk/GetChunkCount/GetTotalDataSize`；单段与主内存接口恒等、多段主接口返回失效值（`@deprecated`）；地址写入单一入口 `SetChunk`；**帧级格式标签 `SetBufferFormat/GetBufferFormat`**（消费端解读 chunk 的钥匙，§2.5） | 需求 7 |
 | F-05 | Attach / Detach 旁路生命周期 | 外部 Buffer 走 `attachList_` 旁路表（绝不进 `allBuffers_/freeList_`）；重复 Attach 支持环形复用；ACQUIRED 态 Detach 返回新错误码 `SURFACE_ERROR_BUFFER_IN_USE` | 需求 3 |
 | F-06 | 生产者释放回调 | 唯一回调 `IProducerListener::OnBufferReleased(SurfaceBuffer*)`；生产者/消费者监听器镜像存储于队列；回调一律锁外执行 | 需求 4 |
 | F-07 | 单进程宏与依赖隔离 | `declare_args(){ surface_lite_single_process }`；true 时剔除 IPC/Gralloc 源文件、依赖与链接项，源码内全部 IPC/Gralloc 触点 `#ifndef SURFACE_LITE_SINGLE_PROCESS` 隔离 | 需求 6 |
-| F-08 | 格式扩展 | `surface_type.h` 新增 `SURFACE_PIXEL_FORMAT_JPEG/H264` 常量（取值避开 `ImageFormat` 0/1xx/2xx 段）；NV21/NV12 双平面走通用例验证 | 需求 8 |
+| F-08 | 格式扩展 | **封闭值域枚举 `SurfaceBufferFormat`**（NONE/NV12/NV21/JPEG/H264，评审定稿取代 0x1000 散常量方案）：Buffer 级标签仅收此四格式、值域校验拒绝混用 `ImageFormat`；NV21/NV12 双平面走通用例验证 | 需求 8 |
 
 > 需求 1（追加式）与需求 5（裸指针风格）为**全局设计约束**，不单列功能，见 §6 影响分析与 delta-spec 约束节。
 
@@ -64,6 +64,7 @@
 
 - [ ] 单段（`GetChunkCount()==1`）：`GetChunk(0)` 与 `GetVirAddr/GetPhyAddr/GetSize` 恒等
 - [ ] 多段（`GetChunkCount()>1`）：主内存接口返回 `nullptr/0/0`；`GetTotalDataSize()` 为全段 size 之和
+- [ ] 帧级格式：`SetBufferFormat` 封闭四格式（NV12/NV21/JPEG/H264），值域外与 `ImageFormat` 值均被拒绝；`NONE`=以 Surface 级为准；消费端 Acquire 后经 `GetBufferFormat` 解读 chunk
 - [ ] 同 `planeId` 段按设置顺序即数据逻辑顺序；驱动乱序由 HAL 适配层排序（示例含乱序 SetChunk 后按序消费的演示）
 - [ ] `GetChunk(0)` 在未 SetChunk 的存量 Buffer（框架 Gralloc 分配）上合成 legacy 视图（`mutable virtualChunk_`）
 - [ ] NV12 帧：plane0（Y）+ plane1（UV）两 chunk；环形帧：跨两段的 chunk 序列

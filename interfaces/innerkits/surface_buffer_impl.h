@@ -395,6 +395,30 @@ public:
      */
     uint32_t GetTotalDataSize() const override;
 
+    /**
+     * @brief Set the frame-level format tag. Valid values: the closed
+     *        SurfaceBufferFormat enum only (ImageFormat values are rejected).
+     * @returns 0 if succeed; -1 if the format is out of the domain.
+     */
+    int32_t SetBufferFormat(uint32_t format) override
+    {
+        if (format > SURFACE_BUFFER_FORMAT_H264) {
+            GRAPHIC_LOGD("Invalid buffer format %u.", format);
+            return -1;
+        }
+        bufferFormat_ = format;
+        return 0;
+    }
+
+    /**
+     * @brief Get the frame-level format tag; SURFACE_BUFFER_FORMAT_NONE (0) if
+     *        never set (the surface-level format applies in that case).
+     */
+    uint32_t GetBufferFormat() const override
+    {
+        return bufferFormat_;
+    }
+
 protected:
     /**
      * @brief Synthesize the legacy single-memory view into virtualChunk_ and return it.
@@ -426,6 +450,7 @@ private:
     std::map<uint32_t, ExtraData> extDatas_;
     uint32_t len_;
     mutable SurfaceDataChunk virtualChunk_ = { nullptr, 0, 0, 0, 0 };
+    uint32_t bufferFormat_ = 0;
 };
 } // end namespace
 #endif

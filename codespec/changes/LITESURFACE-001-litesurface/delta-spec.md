@@ -35,13 +35,23 @@ enum BufferErrorCode {
 
 > kits 头不含错误码；调用方判断 `SURFACE_ERROR_BUFFER_IN_USE` 需包含 innerkits 的 `buffer_common.h`（实现期陷阱 #5）。
 
-### 1.3 常量（`interfaces/kits/surface_type.h`，尾部追加）
+### 1.3 常量与枚举（`interfaces/kits/surface_type.h`，尾部追加）
 
 ```cpp
-constexpr uint8_t SURFACE_MAX_CHUNK_NUM = 5;          // 段上限：覆盖单段/双平面/环形跨段/码流分包
-constexpr uint32_t SURFACE_PIXEL_FORMAT_JPEG = 0x1000; // 避开 ImageFormat 的 0/1xx/2xx 值段
-constexpr uint32_t SURFACE_PIXEL_FORMAT_H264 = 0x1001;
+constexpr uint8_t SURFACE_MAX_CHUNK_NUM = 5;    // 段上限：覆盖单段/双平面/环形跨段/码流分包
+
+// [评审定稿] Buffer 级帧格式的封闭值域（四格式）
+enum SurfaceBufferFormat {
+    SURFACE_BUFFER_FORMAT_NONE = 0,             // 未设置：以 Surface 级格式为准
+    SURFACE_BUFFER_FORMAT_NV12,
+    SURFACE_BUFFER_FORMAT_NV21,
+    SURFACE_BUFFER_FORMAT_JPEG,
+    SURFACE_BUFFER_FORMAT_H264,
+};
 ```
+
+- 值域**刻意独立于** `ImageFormat`（0/1xx/2xx/3xx，Surface 级属性沿用）：顺序 0-4 自封闭，`SetBufferFormat` 只接受本枚举值，误传 `ImageFormat` 值（如 NV12=301）被显式拒绝——两套值域无法静默混用
+- 原 0x1000/0x1001 两常量方案**已废弃**（评审定论：四格式封闭值域取代散常量）
 
 ## 2. 数据结构
 
@@ -113,6 +123,20 @@ private:
 - 消费端 `SurfaceImpl` 构造自动 `Register`、析构自动 `Unregister`（见 §4.2）
 - 读 `SurfaceImpl::sid_` 的授权：`SurfaceImpl` 追加 `friend class SurfaceUtils;`（一行，追加于 private 段）
 
+### 2.5 帧级格式标签（`SurfaceBuffer::SetBufferFormat/GetBufferFormat`，评审定稿）
+
+消费端拿到裸 `SurfaceBuffer*` 后需要帧格式才能解读 chunk 数据（NV12/NV21 的 UV 序、码流分段），而 `Surface::SetFormat` 是**队列级分配属性**（带 `Reset` 副作用、逐帧变化有竞态）——故在 Buffer 上追加帧级格式标签：
+
+| 语义 | 说明 |
+|------|------|
+| 值域 | 封闭枚举 `SurfaceBufferFormat`（§1.3，四格式 + NONE）；**独立于 `ImageFormat`**，误传 `ImageFormat` 值返回 `-1`（显式拒绝，杜绝两套值域静默混用） |
+| 纯标签 | 不参与分配计算、不触发 Reset（与 `Surface::SetFormat` 的本质区别） |
+| 校验 | `SetBufferFormat` 返回 `int32_t`（0/-1，风格对齐 `SetChunk`）；值域外写入被拒绝且不改变已存标签 |
+| 进程内 | 不进 IPC 序列化（`ReadFromIpcIo` 不动）——与 chunk 同一原则，保持既有协议零差异 |
+| 可见性 | HAL 在 Attach 前设置、消费端 Acquire 后读（经队列锁 happens-before） |
+| 默认 | `NONE(0)` = 未设置，语义为"以 Surface 级格式为准" |
+| 段级不放 format | 格式是帧级概念：需求 7 全部场景中一帧各段同格式；段级冗余且引入段间一致性风险（评审定论） |
+
 ## 3. 接口签名（逐文件）
 
 ### 3.1 `interfaces/kits/iproducer_listener.h`（新文件）
@@ -160,6 +184,9 @@ public:
     virtual int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const { (void)index; return -1; }
     virtual uint32_t GetChunkCount() const { return 0; }     // SurfaceBufferImpl 覆写后恒 ≥1（§2.3）
     virtual uint32_t GetTotalDataSize() const { return 0; }
+    // [新增·评审定稿] 帧级格式标签：封闭值域校验（§2.5）；默认实现返回 -1/0
+    virtual int32_t SetBufferFormat(uint32_t format) { (void)format; return -1; }
+    virtual uint32_t GetBufferFormat() const { return 0; }
 protected:
     SurfaceBuffer() {}
     virtual ~SurfaceBuffer() {}                          // 既有，protected 保持（R3 风险已评审）
@@ -208,6 +235,9 @@ public:
     int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const override;   // §2.3 合成规则
     uint32_t GetChunkCount() const override;                                   // 恒返回 1（legacy 单段视图）
     uint32_t GetTotalDataSize() const override;                               // 等于 GetSize()
+    // [新增·评审定稿] 帧级格式标签：封闭值域校验（值域外返回 -1 且不改变已存标签，§2.5）
+    int32_t SetBufferFormat(uint32_t format) override;   // format > SURFACE_BUFFER_FORMAT_H264 → -1
+    uint32_t GetBufferFormat() const override;           // 返回 bufferFormat_，默认 NONE(0)
 
 #ifndef SURFACE_LITE_SINGLE_PROCESS
     void ReadFromIpcIo(IpcIo& io);                        // [宏门控] 既有声明
@@ -225,6 +255,7 @@ private:
     std::map<uint32_t, ExtraData> extDatas_;             // 既有
     uint32_t len_;                                        // 既有
     mutable SurfaceDataChunk virtualChunk_ = { nullptr, 0, 0, 0, 0 };  // [新增·尾部追加]
+    uint32_t bufferFormat_ = 0;                           // [新增·尾部追加] 帧级格式标签
 };
 ```
 
@@ -609,11 +640,11 @@ config("surface_single_process_config") {                   # [R-B1 新增]
 
 | 文件 | 追加内容 |
 |------|---------|
-| `interfaces/kits/surface_type.h` | §1.3 常量 |
-| `interfaces/kits/surface_buffer.h` | §2.1 结构体、§3.2 虚函数与工厂声明、`@deprecated` 标注 |
+| `interfaces/kits/surface_type.h` | §1.3 常量与封闭格式枚举 `SurfaceBufferFormat`（四格式，评审定稿取代 0x1000 散常量） |
+| `interfaces/kits/surface_buffer.h` | §2.1 结构体、§3.2 虚函数（chunk + BufferFormat 标签）与工厂声明、`@deprecated` 标注 |
 | `interfaces/kits/surface.h` | §3.3 静态方法与 5 个默认实现虚函数、include 补齐 |
 | `interfaces/innerkits/buffer_common.h` | §1.2 错误码 |
-| `interfaces/innerkits/surface_buffer_impl.h` | §3.4 chunk override、virtualChunk_、SetSizeUnchecked（实现期追加）、宏门控（GetStride 零改动） |
+| `interfaces/innerkits/surface_buffer_impl.h` | §3.4 chunk override、BufferFormat 校验实现、virtualChunk_/bufferFormat_、SetSizeUnchecked（实现期追加）、宏门控（GetStride 零改动） |
 | `interfaces/innerkits/buffer_queue.h` | §3.6 Attach/Detach/镜像监听、attachList_ 等 3 成员、include 补齐 |
 | `interfaces/innerkits/buffer_producer.h` | §3.7 默认实现虚函数 |
 | `interfaces/innerkits/surface_impl.h` | §3.8 新方法/代理构造/成员/宏门控/friend |

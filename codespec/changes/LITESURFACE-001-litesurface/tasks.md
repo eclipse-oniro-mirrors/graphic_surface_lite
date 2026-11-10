@@ -49,3 +49,5 @@
 | T18 | 默认配置对象级 | 10/10 | |
 | T19 | mini 产品级 | GN 通过 + riscv32 8/8 + libsurface_sp.a；in-tree ninja 被 Hi3861 SDK C++ 头环境阻断（R5） | 过程另发现上游 NOTICE 图冲突（developtools 规避） |
 | T20 | 验证记录 + 变更清单 | 完成 | verification.md；另完成 I0 预处理级纯追加验证（5 文件 0 缺失行，含 1 处空格偏差修复） |
+
+| T21 | 帧级格式标签（评审演进：uint32 开放集合 → 封闭四格式枚举+校验） | 完成 | SetBufferFormat/GetBufferFormat + SurfaceBufferFormat 枚举（surface_type.h）；S0-S3 断言升级；ASan 167/0；I0 复验 0 缺失 |

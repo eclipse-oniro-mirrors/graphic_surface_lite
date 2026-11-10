@@ -287,6 +287,7 @@ int32_t SetupNv12Wrapper(int slotIdx, int frameNo)
         CHECK(wrapper->SetChunk(0, yChunk) == 0, "S2: SetChunk plane0");
         CHECK(wrapper->SetChunk(1, uvChunk) == 0, "S2: SetChunk plane1 after sort");
         wrapper->SetSize(NV12_TOTAL);  // must not be rejected by capacity check
+        wrapper->SetBufferFormat(SURFACE_BUFFER_FORMAT_NV12);  // per-frame format tag
         wrapper->SetInt32(DRIVER_BUF_ID_KEY, frameNo);
         g_hal.ringWrappers[slotIdx] = wrapper;
     } else {
@@ -313,6 +314,8 @@ void* ProducerThread(void*)
                 ret = g_hal.rgbWrapper->SetChunk(0, chunk);  // overwrite fresh wrapper slot
                 CHECK(ret == 0, "S1: SetChunk overwrite single segment");
                 g_hal.rgbWrapper->SetSize(static_cast<uint32_t>(g_hal.rgbSlot.size));
+                // RGB is out of the closed four-format domain: the tag stays NONE
+                // (surface-level format applies), demonstrating the default path.
                 ret = g_hal.producer->AttachBuffer(g_hal.rgbWrapper);
                 break;
             }
@@ -367,6 +370,7 @@ void* ProducerThread(void*)
                 CHECK(wrapper->SetChunk(0, head) == 0, "S3: SetChunk head segment");
                 CHECK(wrapper->SetChunk(1, tail) == 0, "S3: SetChunk tail segment");
                 wrapper->SetSize(Y_SIZE);
+                wrapper->SetBufferFormat(SURFACE_BUFFER_FORMAT_H264);  // per-frame format tag
                 wrapper->SetInt32(DRIVER_BUF_ID_KEY, 42);
                 g_hal.ring2Wrapper = wrapper;
                 ret = g_hal.producer->AttachBuffer(wrapper);
@@ -414,6 +418,7 @@ void VerifyNv12Frame(SurfaceBuffer* buffer, int frameNo)
     CHECK(buffer->GetPhyAddr() == 0, "S2: legacy phyAddr invalidated");
     CHECK(buffer->GetSize() == 0, "S2: legacy size invalidated");
     CHECK(buffer->GetTotalDataSize() == NV12_TOTAL, "S2: total data size");
+    CHECK(buffer->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NV12, "S2: per-frame NV12 format tag");
     // Extra data (driver handle) survives release cycles with the wrapper.
     int32_t bufId = 0;
     CHECK(buffer->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0, "S2: extra data readable");
@@ -435,10 +440,6 @@ int Run()
     CHECK(consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV21, "S0: NV21 round trip");
     consumerSurface->SetFormat(IMAGE_PIXEL_FORMAT_NV12);
     CHECK(consumerSurface->GetFormat() == IMAGE_PIXEL_FORMAT_NV12, "S0: NV12 round trip");
-    consumerSurface->SetFormat(SURFACE_PIXEL_FORMAT_JPEG);
-    CHECK(consumerSurface->GetFormat() == SURFACE_PIXEL_FORMAT_JPEG, "S0: JPEG round trip");
-    consumerSurface->SetFormat(SURFACE_PIXEL_FORMAT_H264);
-    CHECK(consumerSurface->GetFormat() == SURFACE_PIXEL_FORMAT_H264, "S0: H264 round trip");
 
     Surface* producerSurface = Surface::CreateSurfaceAsProducer(surfaceId);
     CHECK(producerSurface != nullptr, "S0: CreateSurfaceAsProducer by id");
@@ -460,6 +461,17 @@ int Run()
     SurfaceDataChunk synth;
     CHECK(fresh->GetChunk(0, synth) == 0, "S0: fresh wrapper synthesizes chunk 0");
     CHECK(synth.virAddr == nullptr && synth.size == 1024, "S0: synthesized chunk content");
+    // Buffer-level format tag: closed domain, validation, NONE default.
+    CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: fresh wrapper format defaults to NONE");
+    CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_JPEG) == 0, "S0: set JPEG tag");
+    CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_JPEG, "S0: JPEG tag round trip");
+    CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_H264) == 0, "S0: set H264 tag");
+    CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: H264 tag round trip");
+    CHECK(fresh->SetBufferFormat(999) == -1, "S0: out-of-domain format rejected");
+    CHECK(fresh->SetBufferFormat(IMAGE_PIXEL_FORMAT_NV12) == -1, "S0: ImageFormat value rejected (closed domain)");
+    CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: rejected writes leave tag unchanged");
+    CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_NONE) == 0, "S0: clear tag back to NONE");
+    CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: tag cleared");
     g_hal.producer = producerSurface;
     g_hal.rgbWrapper = fresh;  // reused by S1 (attached there, never leaked)
 
@@ -512,7 +524,6 @@ int Run()
     }
 
     /* ----------------- S3: ring crossing two segments + IN_USE + pending table */
-    consumerSurface->SetFormat(SURFACE_PIXEL_FORMAT_H264);  // stream packets
     SubmitJob(JOB_S3_SETUP_ATTACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S3: attach ring-crossing H264 frame");
     DemoWait(&g_available);
@@ -529,6 +540,7 @@ int Run()
     CHECK(c1.virAddr == g_hal.ring2Slot.mem, "S3: tail segment wraps to base");
     CHECK(ring2->GetTotalDataSize() == Y_SIZE, "S3: total data size");
     CHECK(ring2->GetVirAddr() == nullptr, "S3: legacy view invalidated");
+    CHECK(ring2->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S3: per-frame H264 format tag");
 
     SubmitJob(JOB_S3_DETACH_INUSE, 0, &ret);
     CHECK(ret == SURFACE_ERROR_BUFFER_IN_USE, "S3: detach in ACQUIRED returns IN_USE");

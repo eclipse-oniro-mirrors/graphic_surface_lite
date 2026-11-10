@@ -12,7 +12,7 @@
 |---|--------|------|------|
 | V-1 | **I0 不变式**：默认配置下预处理输出纯追加 | `g++ -E -P` 基线/修改版对比，基线行集合必须 ⊆ 修改版行集合（5 个被改 .cpp） | **0 缺失行，通过**（§2） |
 | V-2 | SP 配置隔离环境编译+链接+运行（无 `ipc_skeleton.h`/`serializer.h`/`display_gralloc.h` 头路径） | 宿主机 g++，include 集不含任何 IPC/HDI 路径 | 通过（§3） |
-| V-3 | SP 全流程示例 + ASan/UBSan + 泄漏检测 | 152 项断言，HAL 生产线程 + 消费线程 | **152 passed / 0 failed / 零 ASan·UBSan·泄漏报告**（§3） |
+| V-3 | SP 全流程示例 + ASan/UBSan + 泄漏检测 | 167 项断言（含帧级格式标签封闭值域校验），HAL 生产线程 + 消费线程 | **167 passed / 0 failed / 零 ASan·UBSan·泄漏报告**（§3） |
 | V-4 | 默认配置对象级编译（10 源文件，含 IPC/HDI 头） | 宿主机 g++ -c | 10/10 通过（§4） |
 | V-5 | liteos_m mini 产品级 | GN 图（产品含 graphic:surface_lite + feature）+ riscv32 交叉编译 | GN 通过、`-DSURFACE_LITE_SINGLE_PROCESS=1` 注入确认、8/8 交叉编译通过并打包 `libsurface_sp.a`；in-tree ninja 编译被 Hi3861 板 SDK C++ 头环境阻断（平台级问题 R5，§5） |
 
@@ -36,7 +36,7 @@ surface_impl:          基线缺失=0  新增=97   （初验曾出现 1 行空�
 - 8 个库源文件（`buffer_client_producer.cpp`、`buffer_manager.cpp` 按 BUILD.gn 剔除规则不参与）+ 6 个 libsec C 文件 + 示例，`-std=c++11 -Wall -fsanitize=address,undefined -pthread` 链接运行：
 
 ```
-==== surface_lite single process example: 152 passed, 0 failed ====
+==== surface_lite single process example: 167 passed, 0 failed ====
 EXIT=0（ASAN_OPTIONS=detect_leaks=1，无任何 sanitizer 报告）
 ```
 
@@ -44,10 +44,10 @@ EXIT=0（ASAN_OPTIONS=detect_leaks=1，无任何 sanitizer 报告）
 
 | 场景 | 断言内容 |
 |------|---------|
-| S0 | ID 自动分配/注册表返回消费端/未知 id 拒绝/代理创建/RequestBuffer 返回 nullptr（V10）/NV21·NV12·JPEG·H264 格式往返/新工厂 wrapper 默认视图（count=1、SetSize 不被拒、GetChunk(0) 合成） |
+| S0 | ID 自动分配/注册表返回消费端/未知 id 拒绝/代理创建/RequestBuffer 返回 nullptr（V10）/NV21·NV12 Surface 级往返/**BufferFormat 封闭值域**（NONE 默认/JPEG·H264 往返/999 拒绝/ImageFormat 值拒绝/拒绝不改变已存标签/NONE 清除）/新工厂 wrapper 默认视图（count=1、SetSize 不被拒、GetChunk(0) 合成） |
 | S1 | RGB 单段恒等（GetChunk(0) ↔ 主接口）；**FLUSH 态 Detach 同步兑现**；驱动内存 HAL 调用栈归还 |
-| S2 | NV12 双平面（乱序交付→适配层排序→顺序 SetChunk）；**跳号拒绝**、**越界拒绝**；多段主接口失效（`nullptr/0/0`）与 `GetTotalDataSize`；extra data 跨 Release 存活（随 wrapper 生命周期）；**环形复用**（RELEASE 重入 dirtyList_，6 帧 ×3 槽）；停流时 3 个空闲 wrapper 同步 Detach |
-| S3 | 环形 Buffer 跨两段（同 planeId、头段起于 mid、尾段回卷 base）；H264 码流格式；**ACQUIRED 态 Detach → SURFACE_ERROR_BUFFER_IN_USE**；待回收表命中 → OnBufferReleased 回调内（锁外）Detach + 驱动内存归还（delta-spec §5.2 全流程） |
+| S2 | NV12 双平面（乱序交付→适配层排序→顺序 SetChunk）；**跳号拒绝**、**越界拒绝**；多段主接口失效（`nullptr/0/0`）与 `GetTotalDataSize`；**逐帧 NV12 格式标签**；extra data 跨 Release 存活（随 wrapper 生命周期）；**环形复用**（RELEASE 重入 dirtyList_，6 帧 ×3 槽）；停流时 3 个空闲 wrapper 同步 Detach |
+| S3 | 环形 Buffer 跨两段（同 planeId、头段起于 mid、尾段回卷 base）；**逐帧 H264 格式标签**（取代 Surface 级标签）；**ACQUIRED 态 Detach → SURFACE_ERROR_BUFFER_IN_USE**；待回收表命中 → OnBufferReleased 回调内（锁外）Detach + 驱动内存归还（delta-spec §5.2 全流程） |
 | S4 | 代理析构不删共享队列；消费端析构注销（GetSurface(id)==nullptr）；attachList_ 清理后队列析构无泄漏/UAF |
 
 ## 4. 默认配置对象级编译

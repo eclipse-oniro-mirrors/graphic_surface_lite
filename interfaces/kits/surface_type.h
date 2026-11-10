@@ -79,12 +79,21 @@ enum BufferConsumerUsage {
 constexpr uint8_t SURFACE_MAX_CHUNK_NUM = 5;
 
 /**
- * @brief Compressed frame format constants used by {@link Surface::SetFormat}.
+ * @brief Closed frame format domain of the buffer-level format tag
+ *        (SurfaceBuffer::SetBufferFormat/GetBufferFormat).
  *
- * These values avoid collision with the ImageFormat enum (0/1xx/2xx ranges)
- * defined in graphic_utils_lite.
+ * This domain is intentionally independent of the ImageFormat enum used by
+ * the surface-level attribute (values 0/1xx/2xx/3xx): buffer tags are validated
+ * against this enum only, and passing an ImageFormat value is rejected with
+ * an error so that the two value spaces cannot be silently mixed.
  */
-constexpr uint32_t SURFACE_PIXEL_FORMAT_JPEG = 0x1000;
-constexpr uint32_t SURFACE_PIXEL_FORMAT_H264 = 0x1001;
+enum SurfaceBufferFormat {
+    /** Not set: the surface-level format applies in that case. */
+    SURFACE_BUFFER_FORMAT_NONE = 0,
+    SURFACE_BUFFER_FORMAT_NV12,
+    SURFACE_BUFFER_FORMAT_NV21,
+    SURFACE_BUFFER_FORMAT_JPEG,
+    SURFACE_BUFFER_FORMAT_H264,
+};
 } // end namespace OHOS
 #endif
