@@ -40,13 +40,15 @@ public:
     static Surface* GenericSurfaceByIpcIo(IpcIo& io);
 #endif
 
+#ifdef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief Create a producer proxy sharing the buffer queue of the consumer
-     *        surface (single process mode).
+     *        surface (single process mode only).
      * @param [in] consumerSurface, the registered consumer surface.
      * @returns Surface pointer; nullptr if consumerSurface is invalid.
      */
     static Surface* CreateProducerProxy(Surface* consumerSurface);
+#endif
 
     /**
      * @brief Surface Constructor, used for consumer.
@@ -274,11 +276,13 @@ private:
     SvcIdentity sid_;
     IpcObjectStub objectStub_;
 #endif
+#ifdef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief SurfaceImpl Constructor, producer proxy sharing a buffer queue
-     *        (single process mode). Does not register; does not own the producer.
+     *        (single process mode only). Does not register; does not own the producer.
      */
     explicit SurfaceImpl(BufferProducer* sharedProducer);
+#endif
     BufferQueueConsumer* consumer_;
     BufferProducer* producer_;
     bool IsConsumer_;

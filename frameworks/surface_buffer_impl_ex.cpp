@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+#include <cstdint>
 #include <new>
 #include "surface_buffer_impl.h"
 #include "surface_type.h"
@@ -123,6 +124,11 @@ public:
         }
         uint32_t total = 0;
         for (uint8_t i = 0; i < chunkCount_; i++) {
+            if (total > UINT32_MAX - chunks_[i].size) {
+                // Saturate instead of silently wrapping around on bogus segment sizes.
+                GRAPHIC_LOGD("GetTotalDataSize overflow, saturating.");
+                return UINT32_MAX;
+            }
             total += chunks_[i].size;
         }
         return total;

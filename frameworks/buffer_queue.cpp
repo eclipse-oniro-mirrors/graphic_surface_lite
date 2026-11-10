@@ -491,6 +491,13 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
 {
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
     pthread_mutex_lock(&lock_);
+    // Reject framework-managed buffers: attaching one would dual-list it in
+    // allBuffers_ and attachList_, causing a double release on queue destruction.
+    if (GetBuffer(*buffer) != nullptr) {
+        pthread_mutex_unlock(&lock_);
+        GRAPHIC_LOGI("AttachBuffer rejected: framework-managed buffer.");
+        return SURFACE_ERROR_INVALID_PARAM;
+    }
     bool existed = false;
     std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
@@ -504,9 +511,8 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
         buffer->SetState(BUFFER_STATE_FLUSH);
         dirtyList_.push_back(buffer);
     } else if (buffer->GetState() == BUFFER_STATE_RELEASE) {
-        // Ring reuse: re-enter the dirty list only. Never push into attachList_
-        // twice, otherwise the queue destructor would delete the same pointer
-        // twice (use-after-free).
+        // Ring reuse: re-enter the dirty list only, never attachList_ twice
+        // (the destructor would delete the same pointer twice).
         buffer->SetState(BUFFER_STATE_FLUSH);
         dirtyList_.push_back(buffer);
     } else {
@@ -544,8 +550,7 @@ int32_t BufferQueue::DetachBuffer(SurfaceBufferImpl* buffer)
         GRAPHIC_LOGI("DetachBuffer failed: buffer is in use.");
         return SURFACE_ERROR_BUFFER_IN_USE;
     }
-    // Idle state (RELEASE or queued FLUSH): unlink synchronously and destroy the
-    // wrapper. The driver memory is returned by the HAL on its own call stack.
+    // The driver memory is returned by the HAL on its own call stack.
     dirtyList_.remove(buffer);
     freeList_.remove(buffer);
     attachList_.remove(buffer);

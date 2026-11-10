@@ -120,11 +120,15 @@ HalCtx g_hal;
 
 void AllocDriverMem(DriverSlot* slot, size_t size)
 {
-    slot->size = size;
+    slot->size = 0;
+    slot->mem = nullptr;
     slot->freed = false;
     if (posix_memalign(&slot->mem, 64, size) != 0) {
-        slot->mem = nullptr;
+        // Simulated driver allocation failure: keep the slot consistent and terminate.
+        printf("[FAIL] AllocDriverMem: posix_memalign(%zu) failed\n", size);
+        exit(1);
     }
+    slot->size = size;
     memset(slot->mem, 0xAA, size);  // driver "fills" the frame
 }
 

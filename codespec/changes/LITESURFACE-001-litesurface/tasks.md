@@ -51,3 +51,4 @@
 | T20 | 验证记录 + 变更清单 | 完成 | verification.md；另完成 I0 预处理级纯追加验证（5 文件 0 缺失行，含 1 处空格偏差修复） |
 
 | T21 | 帧级格式标签（评审演进：uint32 开放集合 → 封闭四格式枚举+校验） | 完成 | SetBufferFormat/GetBufferFormat + SurfaceBufferFormat 枚举（surface_type.h）；S0-S3 断言升级；ASan 167/0；I0 复验 0 缺失 |
+| T22 | 安全检视：F1-F4 修复（attach 来源校验/示例空指针/累加饱和/代理门控）+ F5-F10 文档化 + 注释清理 | 完成 | 回归全绿 |

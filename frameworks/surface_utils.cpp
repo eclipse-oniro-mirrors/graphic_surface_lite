@@ -53,7 +53,7 @@ uint64_t SurfaceUtils::Register(Surface* surface)
         }
     }
 #ifdef SURFACE_LITE_SINGLE_PROCESS
-    const uint32_t pid = 0; // single process: no PID concept by definition
+    const uint32_t pid = 0; // single process mode has no PID concept
 #else
     const uint32_t pid = static_cast<uint32_t>(getpid());
 #endif

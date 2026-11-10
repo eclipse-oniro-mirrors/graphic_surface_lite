@@ -119,7 +119,7 @@ bool SurfaceImpl::Init()
         }
 #else
         // Single process: producer surfaces are created via CreateProducerProxy
-        // (which shares the queue-owned producer) and never pass through Init.
+        // and never pass through Init.
         GRAPHIC_LOGE("Init failed: producer initialization is unsupported in single process mode.");
         return false;
 #endif
@@ -310,6 +310,7 @@ void SurfaceImpl::UnregisterProducerListener()
     producer_->UnregisterProducerListener();
 }
 
+#ifdef SURFACE_LITE_SINGLE_PROCESS
 SurfaceImpl::SurfaceImpl(BufferProducer* sharedProducer)
     : consumer_(nullptr), producer_(sharedProducer), IsConsumer_(false), surfaceId_(0), ownProducer_(false)
 {
@@ -328,6 +329,7 @@ Surface* SurfaceImpl::CreateProducerProxy(Surface* consumerSurface)
     GRAPHIC_LOGE("Create producer proxy failed");
     return nullptr;
 }
+#endif // SURFACE_LITE_SINGLE_PROCESS
 
 #ifndef SURFACE_LITE_SINGLE_PROCESS
 void SurfaceImpl::WriteIoIpcIo(IpcIo& io)

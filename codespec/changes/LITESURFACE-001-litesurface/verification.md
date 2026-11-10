@@ -136,3 +136,31 @@ in-tree ninja 编译被 **Hi3861 板 SDK 的 C++ 头环境**阻断：板级全�
 ## 9. 结论
 
 LITESURFACE-001 全部需求（8 条）在既定验证口径（最简验证：单进程产品级 + 默认对象级）下达成；追加式不变式（I0）经预处理级数学验证；唯一遗留为上游平台问题 R5（Hi3861 板 C++ 头环境），已给出分析与规避记录，不影响组件交付与后续在具备 C++ 环境的 mini 板（或修复后的 Hi3861 SDK）上落地。
+
+## 10. 安全检视记录（代码评审轮）
+
+检视范围：全部新增/修改代码。结论：**4 项修复 + 6 项文档化风险**。
+
+### 已修复（随 `fix(security)` 提交）
+
+| # | 问题 | 修复 |
+|---|------|------|
+| F1 | AttachBuffer 未校验 wrapper 来源：框架分配 Buffer 被误 Attach 会进 allBuffers_+attachList_ 双表 → 队列析构双重释放 | Attach 入口 `GetBuffer() != nullptr` 则拒绝（SURFACE_ERROR_INVALID_PARAM） |
+| F2 | 示例 AllocDriverMem：posix_memalign 失败后无条件 memset 空指针 | 失败分支保持 slot 一致并显式终止；memset 移入成功分支 |
+| F3 | Ex::GetTotalDataSize 多段 size 累加可回绕 uint32_t | 溢出饱和返回 UINT32_MAX |
+| F4 | CreateProducerProxy 两态皆编译且代理不初始化 sid_（默认模式误用 → IPC 到垃圾句柄） | 工厂与代理构造整体 `#ifdef SURFACE_LITE_SINGLE_PROCESS` 门控 |
+
+### 文档化风险（不改代码）
+
+- F5：`GetVirtualChunk` 写 `mutable virtualChunk_`——并发 GetChunk 理论数据竞争（单消费者契约下良性）
+- F6：监听器指针锁外解引用 TOCTOU——与既有 EnqueueBuffer 模式一致，监听器生命周期调用方负责
+- F7：`SurfaceBuffer*→SurfaceBufferImpl*` reinterpret_cast 类型混用假设——继承既有 FlushBuffer/ReleaseBuffer 模式（lite 无 RTTI）
+- F8：`SurfaceUtils::Register` 公开接受任意 Surface*，GetSvcIdentity/CreateProducerProxy 的 static_cast 假定 SurfaceImpl——树内唯一注册者即 SurfaceImpl
+- F9：attachList_/dirtyList_ 不受 queueSize_ 上限约束（驱动队列深度 HAL 自管）
+- F10：工厂 wrapper 不 Attach 即泄漏（protected 析构，R3 已记录）
+
+### 注释清理（同轮完成）
+
+删除评审编号元话语（"code review F1/F3/F4"）、历史叙述（"previously propagated"）、SDD 标签（"implementation-period"）与代码自述式注释；保留防回归 WHY 注释（双表拒绝理由/指针同一性理由/环形复用防双 delete/锁外回调理由/饱和理由）。
+
+回归：SP 8/8、默认 10/10、ASan 167/0、I0 0 缺失（修复+清理后复验）。

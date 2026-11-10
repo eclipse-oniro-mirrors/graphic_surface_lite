@@ -52,9 +52,8 @@ shared_library("surface") {
   ]
   public_configs = [ ":surface_public_config" ]
   if (surface_lite_single_process) {
-    # Header-only graphic utils usage in single process mode: the default
-    # graphic_config.h lives in the utils innerkits directory (previously
-    # propagated via the utils_lite public_dep).
+    # Single process mode uses graphic utils as headers only; the default
+    # graphic_config.h lives in the utils innerkits directory.
     public_configs += [ ":surface_single_process_config" ]
     public_deps = []
   } else {
