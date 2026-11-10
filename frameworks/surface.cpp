@@ -15,6 +15,7 @@
 
 #include "surface.h"
 #include "surface_impl.h"
+#include "surface_utils.h"
 
 namespace OHOS {
 Surface* Surface::CreateSurface()
@@ -30,6 +31,26 @@ Surface* Surface::CreateSurface()
     }
     GRAPHIC_LOGE("Create surface failed");
     return nullptr;
+}
+
+Surface* Surface::CreateSurfaceAsProducer(uint64_t surfaceId)
+{
+#ifdef SURFACE_LITE_SINGLE_PROCESS
+    Surface* consumerSurface = SurfaceUtils::GetInstance()->GetSurface(surfaceId);
+    if (consumerSurface == nullptr) {
+        GRAPHIC_LOGE("CreateSurfaceAsProducer failed: surface id %llu is unknown.",
+                     static_cast<unsigned long long>(surfaceId));
+        return nullptr;
+    }
+    return SurfaceImpl::CreateProducerProxy(consumerSurface);
+#else
+    // Cross process: the producer lives in another process and needs the SvcIdentity.
+    // Use the innerkits SurfaceImpl::GenericSurfaceByIdAndSid(surfaceId, sid) instead.
+    (void)surfaceId;
+    GRAPHIC_LOGE("CreateSurfaceAsProducer is unsupported in cross process mode, "
+                 "use GenericSurfaceByIdAndSid instead.");
+    return nullptr;
+#endif
 }
 
 Surface::~Surface()
