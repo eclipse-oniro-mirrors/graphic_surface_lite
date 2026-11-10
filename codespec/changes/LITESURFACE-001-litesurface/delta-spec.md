@@ -328,8 +328,7 @@ class SurfaceImpl : public Surface {
 public:
     SurfaceImpl();                                     // 既有消费端构造：尾部追加注册（§4.2）
 #ifndef SURFACE_LITE_SINGLE_PROCESS
-    static Surface* GenericSurfaceByIpcIo(IpcIo& io);  // [宏门控] 既有
-    static Surface* GenericSurfaceByIdAndSid(uint64_t surfaceId, const SvcIdentity& sid);  // [新增·宏门控] (id, sid) 重载
+    static Surface* GenericSurfaceByIpcIo(IpcIo& io);  // [宏门控] 既有；跨进程生产者创建**仅此既有通路**（评审定论：跨进程接口面零新增，不设 (id, sid) 重载）
 #endif
     // [新增] 单进程生产者代理工厂（无 IPC 类型，两态皆编译）
     static Surface* CreateProducerProxy(Surface* consumerSurface);
@@ -477,7 +476,7 @@ private:
  消费进程                                       生产进程
     │ CreateSurface() → id 自动注册              │
     │ (sid 经既有 WriteIoIpcIo 通路传出)           │
-    │                                           │ GenericSurfaceByIdAndSid(id, sid)  [新增重载]
+    │                                           │ GenericSurfaceByIpcIo(io)  [既有通路，评审定论：跨进程接口面零新增]
     │                                           │  → new SurfaceImpl(sid) + Init()
     │                                           │  → BufferClientProducer(sid_)      [既有路径]
     │  RequestBuffer/FlushBuffer/Cancel ──既有 IpcIo 流量──► OnIpcMsg 处理
@@ -572,8 +571,8 @@ config("surface_single_process_config") {                   # [R-B1 新增]
 |------|---------|
 | `interfaces/innerkits/surface_buffer_impl.h` | `#include "ipc_skeleton.h"`；`ReadFromIpcIo/WriteToIpcIo` 声明 |
 | `frameworks/surface_buffer_impl.cpp` | `ReadFromIpcIo/WriteToIpcIo` 函数体（IpcIo/ReadInt32/WriteInt32 等） |
-| `interfaces/innerkits/surface_impl.h` | `GenericSurfaceByIpcIo/GenericSurfaceByIdAndSid` 声明、`WriteIoIpcIo/DoIpcMsg/IpcRequestHandler` 声明、`SurfaceImpl(SvcIdentity&)` 私有构造、`sid_`/`objectStub_` 成员 |
-| `frameworks/surface_impl.cpp` | `#include "buffer_client_producer.h"`、`#include "buffer_manager.h"`；sid 初始化、`objectStub_` 挂接、`ReleaseSvc`、`GenericSurfaceByIpcIo/DoIpcMsg/IpcRequestHandler/GenericSurfaceByIdAndSid` 函数体、`Init()` 内 `BufferManager::GetInstance()->Init()` 与 `new BufferClientProducer(sid_)` 分支 |
+| `interfaces/innerkits/surface_impl.h` | `GenericSurfaceByIpcIo` 声明、`WriteIoIpcIo/DoIpcMsg/IpcRequestHandler` 声明、`SurfaceImpl(SvcIdentity&)` 私有构造、`sid_`/`objectStub_` 成员 |
+| `frameworks/surface_impl.cpp` | `#include "buffer_client_producer.h"`、`#include "buffer_manager.h"`；sid 初始化、`objectStub_` 挂接、`ReleaseSvc`、`GenericSurfaceByIpcIo/DoIpcMsg/IpcRequestHandler` 函数体、`Init()` 内 `BufferManager::GetInstance()->Init()` 与 `new BufferClientProducer(sid_)` 分支 |
 | `frameworks/buffer_queue.cpp` | `#include "buffer_manager.h"`；析构/`NeedAttach`/`Detach`/`Reset`/`SetQueueSize` 内 `BufferManager::GetInstance()/FreeBuffer` 语句块 |
 | `frameworks/buffer_queue_producer.{h,cpp}` | `OnIpcMsg` 声明与实现、ipc 静态 handler 段与 `g_ipcMsgHandleList`、`FlushBuffer` 内 `BufferManager::FlushCache` |
 | `frameworks/surface_utils.cpp` | `GetSvcIdentity` 实现及 `SurfaceEntry::sid` 相关语句、`getpid()` 调用（SP 用常量 0） |

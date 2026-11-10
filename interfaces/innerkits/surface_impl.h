@@ -38,15 +38,6 @@ public:
      * @returns Surface pointer.
      */
     static Surface* GenericSurfaceByIpcIo(IpcIo& io);
-
-    /**
-     * @brief Generic Surface from surface id and SvcIdentity, used for producer
-     *        on multi process.
-     * @param [in] surfaceId, global surface id (see SurfaceUtils).
-     * @param [in] sid. Consumer surface sid, ipc sending request param.
-     * @returns Surface pointer.
-     */
-    static Surface* GenericSurfaceByIdAndSid(uint64_t surfaceId, const SvcIdentity& sid);
 #endif
 
     /**

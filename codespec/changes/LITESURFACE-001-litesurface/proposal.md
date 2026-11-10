@@ -35,7 +35,7 @@
 | 编号 | 功能 | 概述 | 覆盖需求 |
 |------|------|------|---------|
 | F-01 | 全局 Surface ID 注册中心 | innerkits 内部类 `SurfaceUtils`：消费端 SurfaceImpl 构造自动注册、析构自动注销；ID 编码 `PID<<32 \| counter` | 需求 2 |
-| F-02 | 生产者按 ID 创建 Surface | kits 层 `Surface::CreateSurfaceAsProducer(uint64_t id)`；单进程本地查表建共享 BufferQueue 的代理；跨进程返回 `nullptr` 并提示用 innerkits `(id, sid)` 重载 | 需求 2 |
+| F-02 | 生产者按 ID 创建 Surface | kits 层 `Surface::CreateSurfaceAsProducer(uint64_t id)`；单进程本地查表建共享 BufferQueue 的代理；跨进程返回 `nullptr` 并提示走既有通路（`GetSurface(id)` + `WriteIoIpcIo`/`GenericSurfaceByIpcIo`）——**跨进程接口面零新增**（评审定论：撤销原基线的 (id, sid) 重载） | 需求 2 |
 | F-03 | HAL 自构 Buffer 工厂 | `SurfaceBuffer::CreateSurfaceBuffer()` 纯声明，实现在 `frameworks/surface_buffer_impl_ex.cpp` 匿名命名空间 `SurfaceBufferImplEx`（override `SetSize` 解除容量校验） | 需求 3 |
 | F-04 | 多段数据模型 | `SurfaceDataChunk{virAddr, phyAddr, size, stride, planeId}`，`SetChunk/GetChunk/GetChunkCount/GetTotalDataSize`；单段与主内存接口恒等、多段主接口返回失效值（`@deprecated`）；地址写入单一入口 `SetChunk` | 需求 7 |
 | F-05 | Attach / Detach 旁路生命周期 | 外部 Buffer 走 `attachList_` 旁路表（绝不进 `allBuffers_/freeList_`）；重复 Attach 支持环形复用；ACQUIRED 态 Detach 返回新错误码 `SURFACE_ERROR_BUFFER_IN_USE` | 需求 3 |

@@ -366,21 +366,5 @@ Surface* SurfaceImpl::GenericSurfaceByIpcIo(IpcIo& io)
     }
     return nullptr;
 }
-
-Surface* SurfaceImpl::GenericSurfaceByIdAndSid(uint64_t surfaceId, const SvcIdentity& sid)
-{
-    // The id is carried for the caller's bookkeeping; the sid drives the IPC channel.
-    (void)surfaceId;
-    SurfaceImpl* surface = new SurfaceImpl(sid);
-    if (surface != nullptr) {
-        if (surface->Init()) {
-            return reinterpret_cast<Surface *>(surface);
-        } else {
-            GRAPHIC_LOGE("surface init failed");
-            delete surface;
-        }
-    }
-    return nullptr;
-}
 #endif // SURFACE_LITE_SINGLE_PROCESS
 } // namespace OHOS

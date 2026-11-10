@@ -44,11 +44,13 @@ Surface* Surface::CreateSurfaceAsProducer(uint64_t surfaceId)
     }
     return SurfaceImpl::CreateProducerProxy(consumerSurface);
 #else
-    // Cross process: the producer lives in another process and needs the SvcIdentity.
-    // Use the innerkits SurfaceImpl::GenericSurfaceByIdAndSid(surfaceId, sid) instead.
+    // Cross process: the producer lives in another process. Zero cross-process
+    // interface growth by design: use the existing path instead — GetSurface(id)
+    // plus WriteIoIpcIo on the consumer side, GenericSurfaceByIpcIo on the
+    // producer side.
     (void)surfaceId;
     GRAPHIC_LOGE("CreateSurfaceAsProducer is unsupported in cross process mode, "
-                 "use GenericSurfaceByIdAndSid instead.");
+                 "use GetSurface(id) and the existing WriteIoIpcIo/GenericSurfaceByIpcIo path instead.");
     return nullptr;
 #endif
 }
