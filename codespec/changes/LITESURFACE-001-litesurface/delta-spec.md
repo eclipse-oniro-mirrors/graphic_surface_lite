@@ -655,7 +655,7 @@ config("surface_single_process_config") {                   # [R-B1 新增]
 | `frameworks/surface.cpp` | `CreateSurfaceAsProducer` |
 | `BUILD.gn` | §6.1 共享 gni 引用/条件源/条件依赖（R-B1 utils_lite 链接裁剪 + surface_single_process_config）/ldflags/示例目标 |
 | `test/BUILD.gn` | [R-B3] SP 模式剔除 `ipc_single` 依赖 + 引入共享 gni |
-| `bundle.json` | [R-B4] features 声明 `surface_lite_single_process` |
+| `bundle.json` | [R-B4] features 声明 `surface_lite_single_process`；`adapted_system_type` `["small"]` → `["mini", "small"]`（单进程模式使组件获得 mini 形态，与 graphic_utils_lite 声明惯例一致） |
 
 **零改动**：`frameworks/buffer_queue_consumer.{h,cpp}`、`frameworks/buffer_manager.{h,cpp}`（仅 BUILD.gn 剔除参与）、`frameworks/buffer_client_producer.{h,cpp}`、`test/unittest/graphic_surface_test.cpp`（存量单测**源码**零改动，git 可证；US-5 验收）、ndk 配置（head_files 不新增 kits 文件——`iproducer_listener.h` 经 `surface.h` include 暴露，随目录 `interfaces/kits` 整体发布）。
 
