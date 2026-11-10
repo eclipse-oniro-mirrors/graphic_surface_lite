@@ -16,7 +16,7 @@
     "features": [
       "surface_lite_single_process"
     ],
-    "adapted_system_type": [ "small" ],
+    "adapted_system_type": [ "mini", "small" ],
     "rom": "110KB",
     "ram": "~50KB",
     "deps": {
