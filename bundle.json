@@ -13,6 +13,9 @@
     "name": "surface_lite",
     "subsystem": "graphic",
     "feature": [],
+    "features": [
+      "surface_lite_single_process"
+    ],
     "adapted_system_type": [ "small" ],
     "rom": "110KB",
     "ram": "~50KB",
