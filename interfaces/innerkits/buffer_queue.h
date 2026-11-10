@@ -18,6 +18,9 @@
 
 #include <list>
 #include <map>
+#include <string>
+#include "ibuffer_consumer_listener.h"
+#include "iproducer_listener.h"
 #include "surface_buffer_impl.h"
 
 namespace OHOS {
@@ -196,6 +199,39 @@ public:
      */
     bool Init();
 
+    /**
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     *        The buffer enters the bypass attachList_ and dirtyList_ directly and never
+     *        enters allBuffers_/freeList_ (the framework allocation/free path is not
+     *        applicable to driver-owned memory).
+     * @param [in] buffer, external buffer wrapper to attach.
+     * @returns 0 if succeed; error code otherwise (rejected when queued or acquired).
+     */
+    int32_t AttachBuffer(SurfaceBufferImpl* buffer);
+
+    /**
+     * @brief Detach an externally allocated buffer.
+     *        Idle (released/queued) buffers are unlinked and destroyed synchronously;
+     *        acquired buffers return SURFACE_ERROR_BUFFER_IN_USE.
+     * @param [in] buffer, external buffer wrapper to detach.
+     * @returns 0 if succeed; error code otherwise.
+     */
+    int32_t DetachBuffer(SurfaceBufferImpl* buffer);
+
+    /**
+     * @brief Mirror the producer listener on the queue (single source of callbacks).
+     */
+    void RegisterProducerListener(IProducerListener* listener);
+    void UnregisterProducerListener();
+    IProducerListener* GetProducerListener();
+
+    /**
+     * @brief Mirror the consumer listener on the queue (single source of callbacks).
+     */
+    void RegisterConsumerListener(IBufferConsumerListener* listener);
+    void UnregisterConsumerListener();
+    IBufferConsumerListener* GetConsumerListener();
+
 private:
     bool CanRequest(uint8_t wait);
     int32_t isValidAttr(uint32_t width, uint32_t height, uint32_t format, uint32_t strideAlignment);
@@ -204,6 +240,7 @@ private:
     void Detach(SurfaceBufferImpl* buffer);
     SurfaceBufferImpl* GetBuffer(const SurfaceBufferImpl& buffer);
     int32_t ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState state);
+    SurfaceBufferImpl* GetAttachedBuffer(const SurfaceBufferImpl& buffer);
     uint32_t width_;
     uint32_t height_;
     uint32_t format_;
@@ -220,6 +257,9 @@ private:
     pthread_mutex_t lock_;
     pthread_cond_t freeCond_;
     std::map<std::string, std::string> usrDataMap_;
+    std::list<SurfaceBufferImpl *> attachList_;
+    IProducerListener* producerListener_ = nullptr;
+    IBufferConsumerListener* consumerListener_ = nullptr;
 };
 } // end namespace
 #endif

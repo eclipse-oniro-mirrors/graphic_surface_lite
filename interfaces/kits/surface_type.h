@@ -68,5 +68,23 @@ enum BufferConsumerUsage {
      *  range. */
     BUFFER_CONSUMER_USAGE_MAX
 };
+
+/**
+ * @brief Maximum number of data segments (chunks) of one buffer.
+ *
+ * One buffer = one frame = 1 to SURFACE_MAX_CHUNK_NUM data segments,
+ * covering single-segment RGB, dual-plane NV12/NV21, ring buffer crossing
+ * two segments, and stream multi-packet frames.
+ */
+constexpr uint8_t SURFACE_MAX_CHUNK_NUM = 5;
+
+/**
+ * @brief Compressed frame format constants used by {@link Surface::SetFormat}.
+ *
+ * These values avoid collision with the ImageFormat enum (0/1xx/2xx ranges)
+ * defined in graphic_utils_lite.
+ */
+constexpr uint32_t SURFACE_PIXEL_FORMAT_JPEG = 0x1000;
+constexpr uint32_t SURFACE_PIXEL_FORMAT_H264 = 0x1001;
 } // end namespace OHOS
 #endif

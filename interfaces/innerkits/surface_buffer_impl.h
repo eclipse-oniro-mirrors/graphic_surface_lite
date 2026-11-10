@@ -19,7 +19,9 @@
 #include <map>
 #include <pthread.h>
 #include "buffer_common.h"
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 #include "ipc_skeleton.h"
+#endif
 #include "surface_buffer.h"
 
 namespace OHOS {
@@ -339,6 +341,7 @@ public:
      * @brief Get buffer attr from ipc object.
      * @param [in] IpcIo pointer.
      */
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     void ReadFromIpcIo(IpcIo& io);
 
     /**
@@ -346,6 +349,7 @@ public:
      * @param [in] IpcIo object.
      */
     void WriteToIpcIo(IpcIo& io);
+#endif
 
     /**
      * @brief Copy buffer extra data from input buffer to self
@@ -357,6 +361,56 @@ public:
      * @brief Clear buffer extra data.
      */
     void ClearExtraData();
+
+    /**
+     * @brief Set one data segment of the buffer (framework-managed buffers do not
+     *        allow segment writing; always returns -1).
+     * @param [in] index segment index.
+     * @param [in] chunk segment to set.
+     * @returns 0 if succeed; -1 otherwise.
+     */
+    int32_t SetChunk(uint8_t index, const SurfaceDataChunk& chunk) override;
+
+    /**
+     * @brief Get one data segment of the buffer. For buffers whose segments have
+     *        never been set, index 0 is synthesized from the legacy single-memory
+     *        view (bufferData_ fields).
+     * @param [in] index segment index.
+     * @param [out] chunk segment obtained.
+     * @returns 0 if succeed; -1 otherwise.
+     */
+    int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const override;
+
+    /**
+     * @brief Get the number of data segments. Framework-managed buffers are always
+     *        single-segment (legacy view), so this always returns 1.
+     * @returns segment count.
+     */
+    uint32_t GetChunkCount() const override;
+
+    /**
+     * @brief Get the total data size of all segments. Equals GetSize() for
+     *        framework-managed buffers.
+     * @returns total data size in bytes.
+     */
+    uint32_t GetTotalDataSize() const override;
+
+protected:
+    /**
+     * @brief Synthesize the legacy single-memory view into virtualChunk_ and return it.
+     *        Shared by SurfaceBufferImpl and SurfaceBufferImplEx for chunk-0 fallback.
+     */
+    const SurfaceDataChunk& GetVirtualChunk() const;
+
+    /**
+     * @brief Set data length bypassing the capacity check.
+     *        For externally managed buffers whose capacity is owned by the HAL/driver
+     *        (bufferData_.size is always 0), used by SurfaceBufferImplEx::SetSize.
+     */
+    void SetSizeUnchecked(uint32_t size)
+    {
+        len_ = size;
+    }
 
 private:
     /**
@@ -371,6 +425,7 @@ private:
     struct SurfaceBufferData bufferData_;
     std::map<uint32_t, ExtraData> extDatas_;
     uint32_t len_;
+    mutable SurfaceDataChunk virtualChunk_ = { nullptr, 0, 0, 0, 0 };
 };
 } // end namespace
 #endif

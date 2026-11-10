@@ -38,7 +38,9 @@
 #ifndef GRAPHIC_LITE_SURFACE_H
 #define GRAPHIC_LITE_SURFACE_H
 
+#include <string>
 #include "ibuffer_consumer_listener.h"
+#include "iproducer_listener.h"
 #include "surface_buffer.h"
 #include "surface_type.h"
 
@@ -62,6 +64,23 @@ public:
      * @version 1.0
      */
     static Surface* CreateSurface();
+
+    /**
+     * @brief Creates a {@link Surface} object for producers, addressed by the global surface id.
+     *
+     * In single-process mode, the local registry is looked up and a producer proxy sharing
+     * the same buffer queue as the consumer surface is returned. \n
+     * In cross-process mode this returns <b>nullptr</b>; use the innerkits
+     * (surfaceId, SvcIdentity) overload instead.
+     *
+     * @param surfaceId Indicates the global surface id returned by GetSurfaceId of the
+     *                  consumer surface.
+     * @return Returns the pointer to the producer {@link Surface}; returns <b>nullptr</b>
+     *         if the id does not exist or in cross-process mode.
+     * @since 4.0
+     * @version 1.0
+     */
+    static Surface* CreateSurfaceAsProducer(uint64_t surfaceId);
 
     /**
      * @brief A destructor used to delete the <b>Surface</b> instance.
@@ -312,6 +331,83 @@ public:
      * @version 1.0
      */
     virtual void UnregisterConsumerListener() = 0;
+
+    /**
+     * @brief Obtains the global unique id of this surface.
+     *
+     * The id is allocated automatically when the consumer surface is created
+     * (PID << 32 | incremental counter) and unregistered when it is destroyed.
+     *
+     * @return Returns the global surface id; returns <b>0</b> if unavailable.
+     * @since 4.0
+     * @version 1.0
+     */
+    virtual uint64_t GetSurfaceId() const
+    {
+        return 0;
+    }
+
+    /**
+     * @brief Attaches an externally allocated (driver-owned) buffer to the surface.
+     *
+     * The buffer enters the bypass attach list and the dirty queue directly, never the
+     * framework allocation path. Re-attaching a released (idle) buffer re-enters the
+     * dirty queue only (ring reuse); attaching a queued or acquired buffer is rejected.
+     *
+     * @param buffer Indicates the buffer wrapper created by
+     *               SurfaceBuffer::CreateSurfaceBuffer.
+     * @return Returns <b>0</b> if the operation is successful; returns an error code
+     *         otherwise (see innerkits buffer_common.h).
+     * @since 4.0
+     * @version 1.0
+     */
+    virtual int32_t AttachBuffer(SurfaceBuffer* buffer)
+    {
+        (void)buffer;
+        return -1;
+    }
+
+    /**
+     * @brief Detaches an externally allocated buffer from the surface.
+     *
+     * Detaching an idle (released or queued) buffer takes effect synchronously: the
+     * wrapper is unlinked and destroyed, the driver memory is returned by the HAL on
+     * its own call stack. Detaching an acquired buffer returns
+     * SURFACE_ERROR_BUFFER_IN_USE (see innerkits buffer_common.h).
+     *
+     * @param buffer Indicates the buffer to detach.
+     * @return Returns <b>0</b> if the operation is successful; returns an error code
+     *         otherwise.
+     * @since 4.0
+     * @version 1.0
+     */
+    virtual int32_t DetachBuffer(SurfaceBuffer* buffer)
+    {
+        (void)buffer;
+        return -1;
+    }
+
+    /**
+     * @brief Registers the producer listener invoked when a buffer becomes idle.
+     *
+     * If the listener is repeatedly registered, only the latest one is retained.
+     *
+     * @param listener Indicates the listener to register.
+     * @since 4.0
+     * @version 1.0
+     */
+    virtual void RegisterProducerListener(IProducerListener& listener)
+    {
+        (void)listener;
+    }
+
+    /**
+     * @brief Unregisters the producer listener.
+     *
+     * @since 4.0
+     * @version 1.0
+     */
+    virtual void UnregisterProducerListener() {}
 
 protected:
     Surface() {}

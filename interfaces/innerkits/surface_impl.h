@@ -31,12 +31,31 @@ namespace OHOS {
  */
 class SurfaceImpl : public Surface {
 public:
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief Generic Surface from ipc io, used for producer on multi process.
      * @param [in] IpcIo io. Consumer surface sid, ipc sending request param.
      * @returns Surface pointer.
      */
     static Surface* GenericSurfaceByIpcIo(IpcIo& io);
+
+    /**
+     * @brief Generic Surface from surface id and SvcIdentity, used for producer
+     *        on multi process.
+     * @param [in] surfaceId, global surface id (see SurfaceUtils).
+     * @param [in] sid. Consumer surface sid, ipc sending request param.
+     * @returns Surface pointer.
+     */
+    static Surface* GenericSurfaceByIdAndSid(uint64_t surfaceId, const SvcIdentity& sid);
+#endif
+
+    /**
+     * @brief Create a producer proxy sharing the buffer queue of the consumer
+     *        surface (single process mode).
+     * @param [in] consumerSurface, the registered consumer surface.
+     * @returns Surface pointer; nullptr if consumerSurface is invalid.
+     */
+    static Surface* CreateProducerProxy(Surface* consumerSurface);
 
     /**
      * @brief Surface Constructor, used for consumer.
@@ -204,6 +223,33 @@ public:
      *        there will have no listener.
      */
     void UnregisterConsumerListener() override;
+
+    /**
+     * @brief Get the global unique id of this surface (allocated at construction).
+     */
+    uint64_t GetSurfaceId() const override;
+
+    /**
+     * @brief Attach an externally allocated (driver-owned) buffer. Producer side.
+     */
+    int32_t AttachBuffer(SurfaceBuffer* buffer) override;
+
+    /**
+     * @brief Detach an externally allocated buffer. Producer side.
+     */
+    int32_t DetachBuffer(SurfaceBuffer* buffer) override;
+
+    /**
+     * @brief Register producer listener, mirrored on the shared buffer queue.
+     */
+    void RegisterProducerListener(IProducerListener& listener) override;
+
+    /**
+     * @brief Unregister producer listener.
+     */
+    void UnregisterProducerListener() override;
+
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief Serialize Surface attr to IpcIo.
      * @param [out], IpcIo.
@@ -217,6 +263,7 @@ public:
      * @returns 0 is succeed; other is failed.
      */
     int32_t DoIpcMsg(uint32_t code, IpcIo* data, IpcIo* reply, MessageOption option);
+#endif
 
     /**
      * @brief Surface init succeed or not
@@ -225,6 +272,7 @@ public:
     bool Init();
 
 private:
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief SurfaceImpl Constructor, used for producer on multi process.
      * @param [in] SvcIdentity. Consumer sid, ipc sending request param.
@@ -234,9 +282,18 @@ private:
     static int32_t IpcRequestHandler(uint32_t code, IpcIo* data, IpcIo* reply, MessageOption option);
     SvcIdentity sid_;
     IpcObjectStub objectStub_;
+#endif
+    /**
+     * @brief SurfaceImpl Constructor, producer proxy sharing a buffer queue
+     *        (single process mode). Does not register; does not own the producer.
+     */
+    explicit SurfaceImpl(BufferProducer* sharedProducer);
     BufferQueueConsumer* consumer_;
     BufferProducer* producer_;
     bool IsConsumer_;
+    friend class SurfaceUtils;
+    uint64_t surfaceId_ = 0;
+    bool ownProducer_ = true;
 };
 } // end namespace
 #endif
