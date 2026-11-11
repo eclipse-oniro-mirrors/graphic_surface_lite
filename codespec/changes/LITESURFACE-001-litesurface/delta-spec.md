@@ -131,7 +131,7 @@ private:
 |------|------|
 | 值域 | 封闭枚举 `SurfaceBufferFormat`（§1.3，四格式 + NONE）；**独立于 `ImageFormat`**，误传 `ImageFormat` 值返回 `-1`（显式拒绝，杜绝两套值域静默混用） |
 | 纯标签 | 不参与分配计算、不触发 Reset（与 `Surface::SetFormat` 的本质区别） |
-| 校验 | `SetBufferFormat` 返回 `int32_t`（0/-1，风格对齐 `SetChunk`）；值域外写入被拒绝且不改变已存标签 |
+| 校验 | `SetBufferFormat(SurfaceBufferFormat)` 返回 `int32_t`（0/-1，风格对齐 `SetChunk`）；**参数为枚举类型：隐式混传其他枚举（ImageFormat）编译期报错**；cast 传参由运行期值域校验拒绝且不改变已存标签 |
 | 进程内 | 不进 IPC 序列化（`ReadFromIpcIo` 不动）——与 chunk 同一原则，保持既有协议零差异 |
 | 可见性 | HAL 在 Attach 前设置、消费端 Acquire 后读（经队列锁 happens-before） |
 | 默认 | `NONE(0)` = 未设置，语义为"以 Surface 级格式为准" |
@@ -184,9 +184,9 @@ public:
     virtual int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const { (void)index; return -1; }
     virtual uint32_t GetChunkCount() const { return 0; }     // SurfaceBufferImpl 覆写后恒 ≥1（§2.3）
     virtual uint32_t GetTotalDataSize() const { return 0; }
-    // [新增·评审定稿] 帧级格式标签：封闭值域校验（§2.5）；默认实现返回 -1/0
-    virtual int32_t SetBufferFormat(uint32_t format) { (void)format; return -1; }
-    virtual uint32_t GetBufferFormat() const { return 0; }
+    // [新增·评审定稿] 帧级格式标签：枚举类型参数，封闭值域编译期+运行期双重校验（§2.5）
+    virtual int32_t SetBufferFormat(SurfaceBufferFormat format) { (void)format; return -1; }
+    virtual SurfaceBufferFormat GetBufferFormat() const { return SURFACE_BUFFER_FORMAT_NONE; }
 
     static int32_t DestroySurfaceBuffer(SurfaceBuffer* buffer);  // [设计修订 D2] 销毁与 Create 对称（§4.1）
 protected:
@@ -237,9 +237,9 @@ public:
     int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const override;   // §2.3 合成规则
     uint32_t GetChunkCount() const override;                                   // 恒返回 1（legacy 单段视图）
     uint32_t GetTotalDataSize() const override;                               // 等于 GetSize()
-    // [新增·评审定稿] 帧级格式标签：封闭值域校验（值域外返回 -1 且不改变已存标签，§2.5）
-    int32_t SetBufferFormat(uint32_t format) override;   // format > SURFACE_BUFFER_FORMAT_H264 → -1
-    uint32_t GetBufferFormat() const override;           // 返回 bufferFormat_，默认 NONE(0)
+    // [新增·评审定稿] 帧级格式标签：枚举类型参数（隐式混传编译期拒绝；cast 传参运行期值域校验，§2.5）
+    int32_t SetBufferFormat(SurfaceBufferFormat format) override;   // > SURFACE_BUFFER_FORMAT_H264 → -1
+    SurfaceBufferFormat GetBufferFormat() const override;           // 返回 bufferFormat_，默认 NONE
 
 #ifndef SURFACE_LITE_SINGLE_PROCESS
     void ReadFromIpcIo(IpcIo& io);                        // [宏门控] 既有声明
@@ -257,7 +257,7 @@ private:
     std::map<uint32_t, ExtraData> extDatas_;             // 既有
     uint32_t len_;                                        // 既有
     mutable SurfaceDataChunk virtualChunk_ = { nullptr, 0, 0, 0, 0 };  // [新增·尾部追加]
-    uint32_t bufferFormat_ = 0;                           // [新增·尾部追加] 帧级格式标签
+    SurfaceBufferFormat bufferFormat_ = SURFACE_BUFFER_FORMAT_NONE;  // [新增·尾部追加]
 };
 ```
 

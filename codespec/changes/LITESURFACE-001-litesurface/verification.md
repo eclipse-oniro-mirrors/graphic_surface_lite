@@ -192,3 +192,11 @@ LITESURFACE-001 全部需求（8 条）在既定验证口径（最简验证：�
 - 残余陷阱文档化：双重 Destroy 为 UB（无注册表不防）；队列析构对 attachList_ 遗留仍做终态兜底删除
 
 示例升级：三个 Detach 站点（S1 FLUSH 摘除、S2 停流、OnBufferReleased 待回收表）全部补 Destroy；新增断言——未挂载可直接销毁（R3 修复验证）、挂载中/占用中销毁被拒。**176 passed / 0 failed，ASan 零泄漏**（Detach 不删后，泄漏检测即"Destroy 调用完整性"的机械证明）。回归：SP 8/8、默认 10/10、I0 零缺失。
+
+## 13. BufferFormat 接口类型收紧（评审修订）
+
+`SetBufferFormat/GetBufferFormat` 参数与返回值从 `uint32_t` 收紧为 `SurfaceBufferFormat` 枚举：
+- **编译期拦截**：隐式混传其他枚举（如 `IMAGE_PIXEL_FORMAT_NV12`）直接编译错误（已验证：`cannot convert 'ImagePixelFormat' to 'SurfaceBufferFormat'`）
+- **运行期兜底**：`static_cast` 传参仍被值域校验拒绝（示例断言保留）
+- 成员 `bufferFormat_` 类型同步为枚举，默认 `SURFACE_BUFFER_FORMAT_NONE`
+- 回归：SP 8/8、默认 10/10、ASan 176/0
