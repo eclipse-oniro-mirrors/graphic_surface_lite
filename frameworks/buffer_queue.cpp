@@ -64,8 +64,9 @@ BufferQueue::~BufferQueue()
     }
     allBuffers_.clear();
     for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
-        // External buffer wrappers are queue-owned; the driver memory itself is
-        // returned by the HAL on its own call stack (never by the queue).
+        // Terminal path: wrappers still attached at queue destruction are
+        // deleted here (the HAL has no chance to destroy them); the driver
+        // memory itself is returned by the HAL.
         delete *iterBuffer;
     }
     attachList_.clear();
@@ -550,11 +551,13 @@ int32_t BufferQueue::DetachBuffer(SurfaceBufferImpl* buffer)
         GRAPHIC_LOGI("DetachBuffer failed: buffer is in use.");
         return SURFACE_ERROR_BUFFER_IN_USE;
     }
-    // The driver memory is returned by the HAL on its own call stack.
+    // Ownership returns to the HAL: the wrapper is unlinked and reset to NONE.
+    // The single deletion point is SurfaceBuffer::DestroySurfaceBuffer; the
+    // driver memory is returned by the HAL on its own call stack.
     dirtyList_.remove(buffer);
     freeList_.remove(buffer);
     attachList_.remove(buffer);
-    delete buffer;
+    buffer->SetState(BUFFER_STATE_NONE);
     pthread_mutex_unlock(&lock_);
     return SURFACE_ERROR_OK;
 }

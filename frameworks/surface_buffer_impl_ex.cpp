@@ -144,4 +144,21 @@ SurfaceBuffer* SurfaceBuffer::CreateSurfaceBuffer()
 {
     return new (std::nothrow) SurfaceBufferImplEx();
 }
+
+int32_t SurfaceBuffer::DestroySurfaceBuffer(SurfaceBuffer* buffer)
+{
+    if (buffer == nullptr) {
+        return SURFACE_ERROR_INVALID_PARAM;
+    }
+    SurfaceBufferImpl* impl = static_cast<SurfaceBufferImpl*>(buffer);
+    // NONE means the wrapper is not owned by any queue (never attached, or
+    // detached): only then is the HAL allowed to destroy it. Queue-owned
+    // buffers (FLUSH/ACQUIRE/RELEASE) must be detached first.
+    if (impl->GetState() != BUFFER_STATE_NONE) {
+        GRAPHIC_LOGI("DestroySurfaceBuffer rejected: buffer is owned by a queue, detach it first.");
+        return SURFACE_ERROR_BUFFER_IN_USE;
+    }
+    delete impl;
+    return SURFACE_ERROR_OK;
+}
 } // namespace OHOS

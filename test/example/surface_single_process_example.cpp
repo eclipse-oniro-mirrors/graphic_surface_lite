@@ -204,11 +204,13 @@ public:
             g_hal.pendingRecycle[--g_hal.pendingCount] = nullptr;
             pthread_mutex_unlock(&g_hal.lock);
             // Hit: the buffer was in the pending recycle table because DetachBuffer
-            // returned IN_USE earlier. It is idle now: detach synchronously and
-            // return the driver memory.
+            // returned IN_USE earlier. It is idle now: detach (ownership returns),
+            // return the driver memory, then destroy the wrapper.
             int32_t ret = g_hal.producer->DetachBuffer(buffer);
             CHECK(ret == SURFACE_ERROR_OK, "OnBufferReleased: pending detach must succeed");
             ReturnDriverMemory(buffer);
+            ret = SurfaceBuffer::DestroySurfaceBuffer(buffer);
+            CHECK(ret == SURFACE_ERROR_OK, "OnBufferReleased: destroy detached wrapper");
         } else {
             // Miss: keep for ring reuse; the producer loop re-attaches it.
             g_hal.releasedRingCount++;
@@ -315,25 +317,32 @@ int32_t HandleRgbSetupAttach()
 int32_t HandleRgbFlushDetach()
 {
     // Buffer is queued (FLUSH) and has not been acquired: detach takes effect
-    // synchronously.
+    // synchronously (ownership returns), then the HAL destroys the wrapper.
     int32_t ret = g_hal.producer->DetachBuffer(g_hal.rgbWrapper);
     if (ret == SURFACE_ERROR_OK) {
         ReturnDriverMemory(g_hal.rgbWrapper);
+        ret = SurfaceBuffer::DestroySurfaceBuffer(g_hal.rgbWrapper);
+        CHECK(ret == SURFACE_ERROR_OK, "S1: destroy detached wrapper");
     }
     return ret;
 }
 
 int32_t HandleRingDetachAll()
 {
-    // Stream stop: all ring wrappers are idle (RELEASE).
+    // Stream stop: all ring wrappers are idle (RELEASE): detach (ownership
+    // returns) then destroy per wrapper.
     int32_t ret = SURFACE_ERROR_OK;
     for (int i = 0; i < RING_NUM; i++) {
         int32_t r = g_hal.producer->DetachBuffer(g_hal.ringWrappers[i]);
         CHECK(r == SURFACE_ERROR_OK, "S2: idle detach at stream stop");
+        if (r == SURFACE_ERROR_OK) {
+            ReturnDriverMemory(g_hal.ringWrappers[i]);
+            r = SurfaceBuffer::DestroySurfaceBuffer(g_hal.ringWrappers[i]);
+            CHECK(r == SURFACE_ERROR_OK, "S2: destroy detached ring wrapper");
+        }
         if (r != SURFACE_ERROR_OK) {
             ret = r;
         }
-        ReturnDriverMemory(g_hal.ringWrappers[i]);
         g_hal.detachedCount++;
     }
     return ret;
@@ -503,6 +512,11 @@ void RunFreshWrapperChecks()
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: rejected writes leave tag unchanged");
     CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_NONE) == 0, "S0: clear tag back to NONE");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: tag cleared");
+    // Never-attached wrapper: destroy directly (R3 fix).
+    SurfaceBuffer* spare = SurfaceBuffer::CreateSurfaceBuffer();
+    CHECK(spare != nullptr, "S0: spare wrapper for destroy test");
+    CHECK(SurfaceBuffer::DestroySurfaceBuffer(spare) == SURFACE_ERROR_OK,
+          "S0: destroy never-attached wrapper");
     g_hal.producer = g_producerSurface;
     g_hal.rgbWrapper = fresh;  // reused by S1 (attached there, never leaked)
     pthread_create(&g_producerThread, nullptr, ProducerThread, nullptr);
@@ -514,6 +528,8 @@ void RunRgbFlushDetach()
     int32_t ret = -1;
     SubmitJob(JOB_S1_SETUP_ATTACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S1: attach RGB single-segment buffer");
+    CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_hal.rgbWrapper) == SURFACE_ERROR_BUFFER_IN_USE,
+          "S1: destroy queued wrapper rejected");
     g_available = false;  // not consumed on purpose
     SubmitJob(JOB_S1_FLUSH_DETACH, 0, &ret);
     CHECK(ret == SURFACE_ERROR_OK, "S1: queued (FLUSH) detach is synchronous");
@@ -577,6 +593,8 @@ void RunRingCrossingInUse()
     CHECK(ring2->GetTotalDataSize() == Y_SIZE, "S3: total data size");
     CHECK(ring2->GetVirAddr() == nullptr, "S3: legacy view invalidated");
     CHECK(ring2->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S3: per-frame H264 format tag");
+    CHECK(SurfaceBuffer::DestroySurfaceBuffer(ring2) == SURFACE_ERROR_BUFFER_IN_USE,
+          "S3: destroy acquired wrapper rejected");
     SubmitJob(JOB_S3_DETACH_INUSE, 0, &ret);
     CHECK(ret == SURFACE_ERROR_BUFFER_IN_USE, "S3: detach in ACQUIRED returns IN_USE");
     CHECK(g_hal.pendingCount == 1, "S3: buffer recorded in pending recycle table");

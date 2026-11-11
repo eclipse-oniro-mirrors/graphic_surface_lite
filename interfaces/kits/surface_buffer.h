@@ -80,17 +80,35 @@ struct SurfaceDataChunk {
 class SurfaceBuffer {
 public:
     /**
-     * @brief Creates a buffer wrapper for externally allocated memory (HAL self-constructed buffer).
+     * @brief Creates a buffer wrapper for externally allocated (driver-owned) memory.
      *
      * The memory is owned by the chip driver; the framework never allocates or frees it.
-     * The returned wrapper is attached to a surface via Surface::AttachBuffer and destroyed
-     * by Surface::DetachBuffer (or by the queue when the surface is destroyed).
+     * The returned wrapper is attached to a surface via Surface::AttachBuffer. Its
+     * lifecycle pairs with DestroySurfaceBuffer (the canonical teardown sequence is
+     * DetachBuffer followed by DestroySurfaceBuffer).
      *
      * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
      * @since 4.0
      * @version 1.0
      */
     static SurfaceBuffer* CreateSurfaceBuffer();
+
+    /**
+     * @brief Destroys a buffer wrapper created by CreateSurfaceBuffer.
+     *
+     * Allowed only when the wrapper is not owned by a queue (never attached, or
+     * already detached). Calling it on a queue-owned buffer returns
+     * SURFACE_ERROR_BUFFER_IN_USE (see innerkits buffer_common.h) without any
+     * effect, so the buffer must be detached first. After a successful call the
+     * pointer is invalid; calling it again on the same pointer is undefined behavior.
+     *
+     * @param buffer Indicates the buffer wrapper to destroy.
+     * @return Returns <b>0</b> if the operation is successful; returns an error
+     *         code otherwise.
+     * @since 4.0
+     * @version 1.0
+     */
+    static int32_t DestroySurfaceBuffer(SurfaceBuffer* buffer);
 
     /**
      * @brief Obtains the virtual address of shared memory for producers and consumers.
