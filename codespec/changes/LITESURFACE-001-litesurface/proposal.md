@@ -36,7 +36,7 @@
 |------|------|------|---------|
 | F-01 | 全局 Surface ID 注册中心 | innerkits 内部类 `SurfaceUtils`：消费端 SurfaceImpl 构造自动注册、析构自动注销；ID 编码 `PID<<32 \| counter` | 需求 2 |
 | F-02 | 生产者按 ID 创建 Surface | kits 层 `Surface::CreateSurfaceAsProducer(uint64_t id)`；单进程本地查表建共享 BufferQueue 的代理；跨进程返回 `nullptr` 并提示走既有通路（`GetSurface(id)` + `WriteIoIpcIo`/`GenericSurfaceByIpcIo`）——**跨进程接口面零新增**（评审定论：撤销原基线的 (id, sid) 重载） | 需求 2 |
-| F-03 | HAL 自构 Buffer 工厂 | `SurfaceBuffer::CreateSurfaceBuffer()` 纯声明，实现在 `frameworks/surface_buffer_impl_ex.cpp` 匿名命名空间 `SurfaceBufferImplEx`（override `SetSize` 解除容量校验） | 需求 3 |
+| F-03 | HAL 自构 Buffer 工厂与销毁 | `CreateSurfaceBuffer()` / `DestroySurfaceBuffer()` 对称对；销毁门控 `state==NONE`（未挂载或已 Detach），Detach→Destroy 标准安全序列（设计修订 D2：Detach 仅摘链归还所有权，业界标准形态）；队列持有态销毁被拒 | 需求 3 |
 | F-04 | 多段数据模型 | `SurfaceDataChunk{virAddr, phyAddr, size, stride, planeId}`，`SetChunk/GetChunk/GetChunkCount/GetTotalDataSize`；单段与主内存接口恒等、多段主接口返回失效值（`@deprecated`）；地址写入单一入口 `SetChunk`；**帧级格式标签 `SetBufferFormat/GetBufferFormat`**（消费端解读 chunk 的钥匙，§2.5） | 需求 7 |
 | F-05 | Attach / Detach 旁路生命周期 | 外部 Buffer 走 `attachList_` 旁路表（绝不进 `allBuffers_/freeList_`）；重复 Attach 支持环形复用；ACQUIRED 态 Detach 返回新错误码 `SURFACE_ERROR_BUFFER_IN_USE` | 需求 3 |
 | F-06 | 生产者释放回调 | 唯一回调 `IProducerListener::OnBufferReleased(SurfaceBuffer*)`；生产者/消费者监听器镜像存储于队列；回调一律锁外执行 | 需求 4 |
@@ -162,6 +162,6 @@
 |---|----------|------|
 | R1 | mini 产品默认不含 graphic 子系统，单进程配置产品级编译需向产品配置追加组件（vendor 仓构建环境调整，非交付物 diff） | M3 实施时处理，验证记录中注明 |
 | R2 | 单进程编译开关需经 gn args 传入（`surface_lite_single_process=true`），lite 构建的产品 features 通路待实测 | M3 实测通过：产品 features → bundle.json 声明 → gn args 注入链路 work（见 delta-spec §6.1.1 R-B4） |
-| R3 | `SurfaceBuffer` 析构函数为 protected，HAL 无法 `delete SurfaceBuffer*`——工厂创建但从未 Attach 的 wrapper 无法独立销毁 | 本需求约定：工厂产物必须最终 Attach（示例与文档明示）；独立销毁接口列入"不在范围内" |
+| R3 | ~~工厂创建但从未 Attach 的 wrapper 无法独立销毁~~ | **已解决（设计修订 D2）**：`DestroySurfaceBuffer` 以 `state==NONE` 门控实现安全销毁，覆盖未挂载与已 Detach 两类 |
 | R4 | 宿主机单进程运行示例与 riscv32 目板的线程/内存行为差异 | 以 ASan/UBSan + 静态断言（`static_assert` 校验结构体大小/字段偏移不变）补偿，真机验证另行安排 |
 | R5 | （验证期发现）Hi3861 板 SDK 的 musl 头路径与 riscv32 工具链 newlib 头混用，libstdc++ 组件无法在板内 in-tree 编译（graphic_utils_lite 等上游 C++ 组件同被阻断）；另发现 host/target 工具链 cjson_static NOTICE 同路径冲突（图形组件入图后暴露） | 均为上游平台问题，非本需求代码问题；验证以"GN 图 + riscv32 一致头环境交叉编译 8/8 + 宿主机全量运行"替代板内 ninja（verification.md §5）；建议上游单独立项 |

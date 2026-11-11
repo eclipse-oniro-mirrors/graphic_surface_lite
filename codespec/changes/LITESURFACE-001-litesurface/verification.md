@@ -183,3 +183,12 @@ LITESURFACE-001 全部需求（8 条）在既定验证口径（最简验证：�
 - 新增函数全部合规（最大 AttachBuffer NLOC=35/CCN=7）
 - `SurfaceImpl::Init`（NLOC=47）与 `BufferQueue::ReleaseBuffer`（NLOC=44/CCN=10）：**既有函数受 I0 约束豁免重构**（新增仅为门控包裹/前置分支，重排既有语句将破坏"预处理输出纯追加"不变式）
 - `SurfaceBufferImpl::SetData`（CCN=11）：**基线原有函数**，本需求未改动（I0 已证），豁免
+
+## 12. 设计修订 D2：Detach 归还所有权 + Destroy 单一销毁点
+
+评审演进（业界对标 Android detachBuffer / Wayland wl_buffer.release+destroy 后定稿）：
+- `DetachBuffer`：摘链 + 置 `BUFFER_STATE_NONE`，**不再删除** wrapper（所有权归还 HAL）
+- `DestroySurfaceBuffer(SurfaceBuffer*)`：唯一销毁点，门控 `state == NONE`；队列持有态（FLUSH/ACQUIRE/RELEASE）返回 `SURFACE_ERROR_BUFFER_IN_USE` 拒绝
+- 残余陷阱文档化：双重 Destroy 为 UB（无注册表不防）；队列析构对 attachList_ 遗留仍做终态兜底删除
+
+示例升级：三个 Detach 站点（S1 FLUSH 摘除、S2 停流、OnBufferReleased 待回收表）全部补 Destroy；新增断言——未挂载可直接销毁（R3 修复验证）、挂载中/占用中销毁被拒。**176 passed / 0 failed，ASan 零泄漏**（Detach 不删后，泄漏检测即"Destroy 调用完整性"的机械证明）。回归：SP 8/8、默认 10/10、I0 零缺失。

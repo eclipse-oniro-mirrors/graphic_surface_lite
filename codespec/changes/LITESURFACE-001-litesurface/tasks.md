@@ -54,3 +54,4 @@
 | T22 | 安全检视：F1-F4 修复（attach 来源校验/示例空指针/累加饱和/代理门控）+ F5-F10 文档化 + 注释清理 | 完成 | 回归全绿 |
 | T23 | 圈复杂度检查与优化：示例 Run/ProducerThread 拆分（113→12、95/CCN15→44/CCN10），库代码合规或 I0 豁免 | 完成 | lizard 复测全合规，ASan 167/0 |
 | T24 | bundle.json 声明 mini 形态支持（adapted_system_type 增补，对齐 graphic_utils_lite 惯例） | 完成 | JSON 校验通过；hb LOAD 阶段零错误 |
+| T25 | 设计修订 D2：Detach 归还所有权（摘链+置 NONE）+ DestroySurfaceBuffer 单一销毁点（NONE 门控）+ 示例三站点升级与断言 | 完成 | ASan 176/0 零泄漏；I0 0 缺失 |

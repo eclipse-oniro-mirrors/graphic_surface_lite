@@ -187,6 +187,8 @@ public:
     // [新增·评审定稿] 帧级格式标签：封闭值域校验（§2.5）；默认实现返回 -1/0
     virtual int32_t SetBufferFormat(uint32_t format) { (void)format; return -1; }
     virtual uint32_t GetBufferFormat() const { return 0; }
+
+    static int32_t DestroySurfaceBuffer(SurfaceBuffer* buffer);  // [设计修订 D2] 销毁与 Create 对称（§4.1）
 protected:
     SurfaceBuffer() {}
     virtual ~SurfaceBuffer() {}                          // 既有，protected 保持（R3 风险已评审）
@@ -420,18 +422,21 @@ private:
 
 ```
             AttachBuffer(首次)                AcquireBuffer
- (新建) ───────────────────► FLUSH ────────────────────────► ACQUIRE
+ (新建/销毁后) ──────────────► FLUSH ──────────────────────► ACQUIRE
                               ▲  │                            │
                               │  │ DetachBuffer(FLUSH 态)     │ ReleaseBuffer
-                              │  ▼  ── 摘链+delete wrapper     ▼
-              AttachBuffer    │ (同步兑现)                  RELEASE
+                              │  ▼  摘链+置 NONE              ▼
+              AttachBuffer    │ (所有权归还 HAL)            RELEASE
            (RELEASE 态重入,   │                              ┌──────┴───────┐
             仅重入 dirtyList_) │                     DetachBuffer(RELEASE 态)
-                              └──────────────────────────────┤  摘链+delete
-                                                             │  (同步兑现)
-                                                   DetachBuffer(ACQUIRE 态)
-                                                   → SURFACE_ERROR_BUFFER_IN_USE
+                              │                              │  摘链+置 NONE
+                              └───────── NONE ◄──────────────┘（所有权归还）
+                                            │
+                                            └─ DestroySurfaceBuffer → wrapper 销毁
+                               DetachBuffer/Destroy(ACQUIRE 态) → IN_USE 拒绝
 ```
+
+**[设计修订 D2·评审定稿]** 沿用业界标准形态（Android `detachBuffer` 归还引用、Wayland `wl_buffer.release`+`destroy`）：`DetachBuffer` 不再删除 wrapper——摘链并置 `NONE`，所有权归还 HAL；`DestroySurfaceBuffer` 为**唯一销毁点**，门控 `state == NONE`（涵盖从未 Attach 与已 Detach 两类"队列不持有"的 wrapper），队列持有态（FLUSH/ACQUIRE/RELEASE）一律拒绝 `SURFACE_ERROR_BUFFER_IN_USE`。**Detach → Destroy 构成标准安全序列**；双重 Destroy 为 UB（无注册表不防，文档明示）；队列析构对 attachList_ 遗留仍做终态兜底删除。
 
 ### 4.2 不变量（评审与实现的验收判据）
 
@@ -497,8 +502,9 @@ private:
     │◄──────OnBufferReleased(buffer)│ [锁外]                          │
     │ 查待回收表: 命中               │                                │
     ├────DetachBuffer(buffer)───────►│ RELEASE态:                     │
-    │  (回调内重入, 锁外安全)          │  dirty/attachList_摘链          │
-    │  归还驱动内存(调用栈上)          │  + delete wrapper               │
+    │  (回调内重入, 锁外安全)          │  摘链+置NONE(所有权归还)         │
+    │  归还驱动内存(调用栈上)          │                                │
+    ├─DestroySurfaceBuffer(buffer)   │ NONE态: delete wrapper          │
 ```
 
 ### 5.3 跨进程（默认配置）行为对照：零差异
