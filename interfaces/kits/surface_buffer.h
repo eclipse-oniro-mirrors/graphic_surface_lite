@@ -283,8 +283,10 @@ public:
      * A pure per-frame tag for consumers to interpret the chunk data (NV12/NV21
      * plane ordering, JPEG/H264 stream packets). It does not affect allocation
      * and is not serialized over IPC (process-local, same principle as chunks).
-     * Valid values: the closed SurfaceBufferFormat enum; other values (including
-     * ImageFormat constants) are rejected.
+     * The parameter is the closed SurfaceBufferFormat enum: passing other enums
+     * (such as ImageFormat constants) is rejected at compile time; values passed
+     * through an explicit cast are validated at runtime and rejected when out
+     * of the domain.
      *
      * @param format Indicates the frame format to set (SurfaceBufferFormat).
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b>
@@ -292,7 +294,7 @@ public:
      * @since 4.0
      * @version 1.0
      */
-    virtual int32_t SetBufferFormat(uint32_t format)
+    virtual int32_t SetBufferFormat(SurfaceBufferFormat format)
     {
         (void)format;
         return -1;
@@ -302,14 +304,14 @@ public:
      * @brief Obtains the format of this buffer.
      *
      * @return Returns the frame format (SurfaceBufferFormat); returns
-     *         SURFACE_BUFFER_FORMAT_NONE (0) if never set, in which case the
+     *         SURFACE_BUFFER_FORMAT_NONE if never set, in which case the
      *         surface-level format applies.
      * @since 4.0
      * @version 1.0
      */
-    virtual uint32_t GetBufferFormat() const
+    virtual SurfaceBufferFormat GetBufferFormat() const
     {
-        return 0;
+        return SURFACE_BUFFER_FORMAT_NONE;
     }
 
 protected:

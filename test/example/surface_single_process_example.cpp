@@ -507,8 +507,12 @@ void RunFreshWrapperChecks()
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_JPEG, "S0: JPEG tag round trip");
     CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_H264) == 0, "S0: set H264 tag");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: H264 tag round trip");
-    CHECK(fresh->SetBufferFormat(999) == -1, "S0: out-of-domain format rejected");
-    CHECK(fresh->SetBufferFormat(IMAGE_PIXEL_FORMAT_NV12) == -1, "S0: ImageFormat value rejected (closed domain)");
+    // Enum-typed domain: implicit mixing with other enums is a compile error;
+    // cast misuse is still validated at runtime.
+    CHECK(fresh->SetBufferFormat(static_cast<SurfaceBufferFormat>(999)) == -1,
+          "S0: out-of-domain format rejected");
+    CHECK(fresh->SetBufferFormat(static_cast<SurfaceBufferFormat>(IMAGE_PIXEL_FORMAT_NV12)) == -1,
+          "S0: ImageFormat value rejected (runtime guard)");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_H264, "S0: rejected writes leave tag unchanged");
     CHECK(fresh->SetBufferFormat(SURFACE_BUFFER_FORMAT_NONE) == 0, "S0: clear tag back to NONE");
     CHECK(fresh->GetBufferFormat() == SURFACE_BUFFER_FORMAT_NONE, "S0: tag cleared");
