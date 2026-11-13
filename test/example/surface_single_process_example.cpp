@@ -44,6 +44,11 @@
  *  S5c in-flight teardown without a producer listener (queue deletes wrappers)
  *  S6  flow control: IsQueueFull at queueSize, attach beyond queueSize rejected
  *  S7  concurrency: real producer thread vs consumer thread
+ *  S8  mid-traffic consumer death: producer thread running while the consumer
+ *      surface is destroyed (death notify, queue deletes the in-flight
+ *      wrapper, producer calls fail cleanly, driver memory from own records)
+ *  S9  mid-traffic producer stop: producer thread exits first, the queued
+ *      frame is still consumable, consumer drains and releases everything
  */
 
 namespace OHOS {
@@ -600,6 +605,212 @@ void RunConcurrentRing()
           "S7: unregistered");
 }
 
+struct ConcurrentDeathCtx {
+    Surface* consumer;
+    Surface* proxy;
+    DriverSlot slots[RING_NUM];
+    SurfaceBuffer* wrappers[RING_NUM] = { nullptr, nullptr, nullptr };
+    bool abort;
+    int produced;
+};
+
+ConcurrentDeathCtx g_deathCtx;
+
+void* ConcurrentDeathProducer(void*)
+{
+    // Producer thread for the mid-traffic consumer-death scenario: the abort
+    // flag is only read inside the handshake, so a dead wrapper pointer is
+    // never touched again after the consumer died.
+    const int total = 8;
+    for (int frameNo = 0; frameNo < total; frameNo++) {
+        if (g_deathCtx.abort) {
+            break;
+        }
+        int slot = frameNo % RING_NUM;
+        GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.chunks[0] = MakeChunk(g_deathCtx.slots[slot].mem, Y_SIZE);
+        frame.chunks[1] = MakeChunk(static_cast<char*>(g_deathCtx.slots[slot].mem) + Y_SIZE, UV_SIZE);
+        if (g_deathCtx.wrappers[slot]->SetFrame(frame) != 0 ||
+            g_deathCtx.proxy->AttachBuffer(g_deathCtx.wrappers[slot]) != SURFACE_ERROR_OK) {
+            break;
+        }
+        g_deathCtx.produced++;
+        Signal(&g_available);
+        Wait(&g_released);
+    }
+    return nullptr;
+}
+
+class ConcurrentDeathListener : public IProducerListener {
+public:
+    void OnBufferReleased(SurfaceBuffer* buffer) override
+    {
+        (void)buffer;
+        releasedCount++;
+    }
+
+    void OnConsumerSurfaceDestroyed() override
+    {
+        deathNotified = true;
+    }
+
+    int releasedCount = 0;
+    bool deathNotified = false;
+};
+
+void RunConcurrentConsumerDeath()
+{
+    g_deathCtx = ConcurrentDeathCtx();
+    ConcurrentDeathListener listener;
+    g_deathCtx.consumer = Surface::CreateSurface();
+    CHECK(g_deathCtx.consumer != nullptr, "S8: spare consumer");
+    g_deathCtx.consumer->SetQueueSize(RING_NUM);
+    uint64_t id = g_deathCtx.consumer->GetSurfaceId();
+    g_deathCtx.proxy = Surface::CreateSurfaceAsProducer(id);
+    CHECK(g_deathCtx.proxy != nullptr, "S8: spare proxy");
+    g_deathCtx.proxy->RegisterProducerListener(listener);
+    for (int i = 0; i < RING_NUM; i++) {
+        AllocDriverMem(&g_deathCtx.slots[i], Y_SIZE + UV_SIZE);
+        g_deathCtx.wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer();
+        CHECK(g_deathCtx.wrappers[i] != nullptr, "S8: wrapper");
+    }
+    pthread_t producer;
+    pthread_create(&producer, nullptr, ConcurrentDeathProducer, nullptr);
+    const int consumedBeforeDeath = 4;
+    int consumed = 0;
+    for (int frameNo = 0; frameNo < consumedBeforeDeath; frameNo++) {
+        Wait(&g_available);
+        SurfaceBuffer* buf = g_deathCtx.consumer->AcquireBuffer();
+        if (buf == nullptr) {
+            g_fail++;
+            printf("[FAIL] S8: acquire before consumer death (line %d)\n", __LINE__);
+            break;
+        }
+        g_deathCtx.consumer->ReleaseBuffer(buf);
+        consumed++;
+        Signal(&g_released);
+    }
+    // Take the next frame's available signal but do NOT consume the frame:
+    // frame 4 is queued (FLUSH) and the producer thread is blocked on the
+    // released handshake when the teardown below runs.
+    Wait(&g_available);
+    // Mid-traffic teardown of the consumer: death notify fires inside delete,
+    // the queue deletes the in-flight wrapper, and the producer must exit on
+    // the abort flag without touching the dead wrapper again. Driver memory of
+    // the in-flight frame is returned from the producer's own records.
+    g_deathCtx.abort = true;
+    delete g_deathCtx.consumer;
+    Signal(&g_released);
+    pthread_join(producer, nullptr);
+    CHECK(listener.deathNotified, "S8: OnConsumerSurfaceDestroyed fired mid-traffic");
+    CHECK(g_deathCtx.produced == consumedBeforeDeath + 1, "S8: one frame was in flight at teardown");
+    CHECK(listener.releasedCount == consumedBeforeDeath, "S8: OnBufferReleased per consumed frame");
+    CHECK(consumed == consumedBeforeDeath, "S8: frames consumed before teardown");
+    int deadSlot = consumedBeforeDeath % RING_NUM; // the queued frame is frame 'consumedBeforeDeath'
+    for (int i = 0; i < RING_NUM; i++) {
+        if (i != deadSlot) {
+            CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_deathCtx.wrappers[i]) == SURFACE_ERROR_OK,
+                  "S8: destroy surviving idle wrapper");
+        }
+        // The queued wrapper (deadSlot) was already deleted by the queue
+        // destructor: its pointer is invalid per the death contract, only the
+        // driver memory is returned here from the producer's own records.
+        free(g_deathCtx.slots[i].mem);
+        g_deathCtx.slots[i].mem = nullptr;
+        g_deathCtx.slots[i].freed = true;
+    }
+    delete g_deathCtx.proxy;
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S8: unregistered");
+}
+
+struct ConcurrentStopCtx {
+    Surface* proxy;
+    DriverSlot slots[RING_NUM];
+    SurfaceBuffer* wrappers[RING_NUM] = { nullptr, nullptr, nullptr };
+    int produced;
+};
+
+ConcurrentStopCtx g_stopCtx;
+
+void* ConcurrentStopProducer(void*)
+{
+    // Stream stop from the producer side mid-traffic: attach frames 0..3 and
+    // exit without waiting for frame 3 to be consumed (it stays queued).
+    const int producedFrames = 4;
+    for (int frameNo = 0; frameNo < producedFrames; frameNo++) {
+        int slot = frameNo % RING_NUM;
+        GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.chunks[0] = MakeChunk(g_stopCtx.slots[slot].mem, Y_SIZE);
+        frame.chunks[1] = MakeChunk(static_cast<char*>(g_stopCtx.slots[slot].mem) + Y_SIZE, UV_SIZE);
+        if (g_stopCtx.wrappers[slot]->SetFrame(frame) != 0 ||
+            g_stopCtx.proxy->AttachBuffer(g_stopCtx.wrappers[slot]) != SURFACE_ERROR_OK) {
+            return nullptr;
+        }
+        g_stopCtx.produced++;
+        Signal(&g_available);
+        if (frameNo + 1 < producedFrames) {
+            Wait(&g_released);
+        }
+    }
+    return nullptr;
+}
+
+void RunConcurrentProducerStop()
+{
+    g_stopCtx = ConcurrentStopCtx();
+    Surface* consumer = Surface::CreateSurface();
+    CHECK(consumer != nullptr, "S9: spare consumer");
+    consumer->SetQueueSize(RING_NUM);
+    uint64_t id = consumer->GetSurfaceId();
+    g_stopCtx.proxy = Surface::CreateSurfaceAsProducer(id);
+    CHECK(g_stopCtx.proxy != nullptr, "S9: spare proxy");
+    for (int i = 0; i < RING_NUM; i++) {
+        AllocDriverMem(&g_stopCtx.slots[i], Y_SIZE + UV_SIZE);
+        g_stopCtx.wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer();
+        CHECK(g_stopCtx.wrappers[i] != nullptr, "S9: wrapper");
+    }
+    pthread_t producer;
+    pthread_create(&producer, nullptr, ConcurrentStopProducer, nullptr);
+    int consumed = 0;
+    for (int frameNo = 0; frameNo < 3; frameNo++) {
+        Wait(&g_available);
+        SurfaceBuffer* buf = consumer->AcquireBuffer();
+        if (buf == nullptr) {
+            g_fail++;
+            printf("[FAIL] S9: acquire while producer alive (line %d)\n", __LINE__);
+            break;
+        }
+        consumer->ReleaseBuffer(buf);
+        consumed++;
+        Signal(&g_released);
+    }
+    // The producer exits right after attaching the last frame: the queued
+    // frame must still be consumable after its thread is gone.
+    pthread_join(producer, nullptr);
+    CHECK(g_stopCtx.produced == 4, "S9: producer attached all frames before exiting");
+    Wait(&g_available);
+    SurfaceBuffer* tail = consumer->AcquireBuffer();
+    CHECK(tail != nullptr, "S9: queued frame consumed after producer exit");
+    if (tail != nullptr) {
+        GraphicFrame vf = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
+        CHECK(tail->GetFrame(vf) == 0 && vf.chunkCount == 2 && vf.format == GRAPHIC_FRAME_FORMAT_NV12,
+              "S9: queued frame intact after producer exit");
+        consumer->ReleaseBuffer(tail);
+        consumed++;
+    }
+    CHECK(consumed == 4, "S9: all frames drained across the producer stop");
+    for (int i = 0; i < RING_NUM; i++) {
+        CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_stopCtx.wrappers[i]) == SURFACE_ERROR_OK,
+              "S9: destroy idle wrapper");
+        free(g_stopCtx.slots[i].mem);
+        g_stopCtx.slots[i].mem = nullptr;
+        g_stopCtx.slots[i].freed = true;
+    }
+    delete g_stopCtx.proxy;
+    delete consumer;
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S9: unregistered");
+}
+
 void RunTeardown()
 {
     pthread_join(g_producerThread, nullptr);
@@ -621,6 +832,8 @@ int Run()
     RunDeathNotifyProbe();
     RunInFlightNoListenerProbe();
     RunConcurrentRing();
+    RunConcurrentConsumerDeath();
+    RunConcurrentProducerStop();
     RunTeardown();
     printf("\n==== surface_lite single process example: %d passed, %d failed ====\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
