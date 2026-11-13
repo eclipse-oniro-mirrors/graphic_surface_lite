@@ -23,7 +23,7 @@
  * across processes.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 /**
@@ -32,7 +32,7 @@
  * @brief Provides the capabilities of setting shared memory parameters.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 #ifndef GRAPHIC_LITE_SURFACE_TYPE_H

@@ -19,8 +19,8 @@
  *
  * @brief Provides the producer listener used to notify producers when a buffer becomes idle.
  *
- * @since 4.0
- * @version 1.0
+ * @since 26.1.0
+ * @version 26.1.0
  */
 
 /**
@@ -28,8 +28,8 @@
  *
  * @brief Declares the producer listener of the surface.
  *
- * @since 4.0
- * @version 1.0
+ * @since 26.1.0
+ * @version 26.1.0
  */
 
 #ifndef GRAPHIC_LITE_IPRODUCER_LISTENER_H
@@ -44,8 +44,8 @@ class SurfaceBuffer;
  * The callback is always invoked outside the queue lock, so it may re-enter the surface
  * (for example calling AttachBuffer or DetachBuffer).
  *
- * @since 4.0
- * @version 1.0
+ * @since 26.1.0
+ * @version 26.1.0
  */
 class IProducerListener {
 public:
@@ -59,8 +59,8 @@ public:
      * or return it to the driver is decided by the producer itself.
      *
      * @param buffer Indicates the pointer to the idle buffer.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual void OnBufferReleased(SurfaceBuffer* buffer) = 0;
 };

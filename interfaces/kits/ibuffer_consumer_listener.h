@@ -20,7 +20,7 @@
  * @brief Provides the capabilities of applying for and releasing shared memory in multimedia and graphics scenarios.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 /**
@@ -31,7 +31,7 @@
  *
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 #ifndef GRAPHIC_LITE_IBUFFER_CONSUMER_LISTENER_H
@@ -42,7 +42,7 @@ namespace OHOS {
  * @brief Defines the consumer listener used to notify consumers when the surface status is updated.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 class IBufferConsumerListener {
 public:
@@ -50,7 +50,7 @@ public:
      * @brief Called to notify a consumer that a buffer is available for consumption.
      *
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void OnBufferAvailable() = 0;
 };

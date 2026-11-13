@@ -20,7 +20,7 @@
  * @brief Provides the capabilities of applying for and releasing shared memory in multimedia and graphics scenarios.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 /**
@@ -32,7 +32,7 @@
  * of buffers that can be applied for. \n
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 #ifndef GRAPHIC_LITE_SURFACE_H
@@ -49,7 +49,7 @@ namespace OHOS {
  * @brief Defines the consumer listener used to notify consumers when the surface status is updated.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 class Surface {
 public:
@@ -61,7 +61,7 @@ public:
      * In single-process scenarios, this function can be used by both consumers and producers. \n
      *
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     static Surface* CreateSurface();
 
@@ -77,8 +77,8 @@ public:
      *                  consumer surface.
      * @return Returns the pointer to the producer {@link Surface}; returns <b>nullptr</b>
      *         if the id does not exist or in cross-process mode.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     static Surface* CreateSurfaceAsProducer(uint64_t surfaceId);
 
@@ -88,7 +88,7 @@ public:
      * This function releases the surface and all buffers applied for the surface.
      *
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual ~Surface();
 
@@ -98,7 +98,7 @@ public:
      *
      * @param queueSize Indicates the number of buffers to set.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetQueueSize(uint8_t queueSize) = 0;
 
@@ -108,7 +108,7 @@ public:
      *
      * @return Returns the number of buffers.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint8_t GetQueueSize() = 0;
 
@@ -119,7 +119,7 @@ public:
      * @param width Indicates the surface width, in pixels.
      * @param height Indicates the surface height, in pixels.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetWidthAndHeight(uint32_t width, uint32_t height) = 0;
 
@@ -128,7 +128,7 @@ public:
      *
      * @return Returns the surface width, in pixels.
      * @since 1.0
-     * @version 1.0 */
+     * @version 26.1.0 */
     virtual uint32_t GetWidth() = 0;
 
     /**
@@ -136,7 +136,7 @@ public:
      *
      * @return Returns the surface height, in pixels.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetHeight() = 0;
 
@@ -147,7 +147,7 @@ public:
      *
      * @param format Indicates the pixel format to be set.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetFormat(uint32_t format) = 0;
 
@@ -157,7 +157,7 @@ public:
      *
      * @return Returns the pixel format.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetFormat() = 0;
 
@@ -168,7 +168,7 @@ public:
      *
      * @param strideAlignment Indicates the number of bytes for stride alignment.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetStrideAlignment(uint32_t strideAlignment) = 0;
 
@@ -177,7 +177,7 @@ public:
      *
      * @return Returns the number of bytes for stride alignment.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetStrideAlignment() = 0;
 
@@ -186,7 +186,7 @@ public:
      *
      * @return Returns the stride.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetStride() = 0;
 
@@ -196,7 +196,7 @@ public:
      *
      * @param size Indicates the size of the shared memory. The value range is (0,58982400].
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetSize(uint32_t size) = 0;
 
@@ -205,7 +205,7 @@ public:
      *
      * @return Returns the size of the shared memory.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetSize() = 0;
 
@@ -215,7 +215,7 @@ public:
      *
      * @param usage Indicates the usage scenario of the buffer. For details, see {@link BUFFER_CONSUMER_USAGE}.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetUsage(uint32_t usage) = 0;
 
@@ -224,7 +224,7 @@ public:
      *
      * @return Returns the usage scenario of the buffer. For details, see {@link BUFFER_CONSUMER_USAGE}.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetUsage() = 0;
 
@@ -234,7 +234,7 @@ public:
      * @param key Indicates the key of a key-value pair to store.
      * @param value Indicates the value of the key-value pair to store.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetUserData(const std::string& key, const std::string& value) = 0;
 
@@ -244,7 +244,7 @@ public:
      * @param key Indicates the key of a key-value pair for which the value is to be obtained.
      * @return Returns the value of the key-value pair obtained.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual std::string GetUserData(const std::string& key) = 0;
 
@@ -258,7 +258,7 @@ public:
      * in the free queue. The default value is <b>0</b>.
      * @return Returns the pointer to the buffer if the operation is successful; returns <b>nullptr</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual SurfaceBuffer* RequestBuffer(uint8_t wait = 0) = 0;
 
@@ -270,7 +270,7 @@ public:
      * @param SurfaceBuffer Indicates the pointer to the buffer flushed by producers.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual int32_t FlushBuffer(SurfaceBuffer* buffer) = 0;
 
@@ -282,7 +282,7 @@ public:
      *
      * @return Returns the pointer to the {@link SurfaceBuffer} object.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual SurfaceBuffer* AcquireBuffer() = 0;
 
@@ -296,7 +296,7 @@ public:
      * @param SurfaceBuffer Indicates the pointer to the buffer released.
      * @return Returns <b>true</b> if the buffer is released; returns <b>false</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual bool ReleaseBuffer(SurfaceBuffer* buffer) = 0;
 
@@ -306,7 +306,7 @@ public:
      *
      * @param SurfaceBuffer Indicates the pointer to the buffer to be released by producers.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void CancelBuffer(SurfaceBuffer* buffer) = 0;
 
@@ -318,7 +318,7 @@ public:
      *
      * @param IBufferConsumerListener Indicates the listener to register.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void RegisterConsumerListener(IBufferConsumerListener& listener) = 0;
 
@@ -328,7 +328,7 @@ public:
      * After the listener is unregistered, no callback is triggered when a buffer is placed in the dirty queue.
      *
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void UnregisterConsumerListener() = 0;
 
@@ -339,8 +339,8 @@ public:
      * (PID << 32 | incremental counter) and unregistered when it is destroyed.
      *
      * @return Returns the global surface id; returns <b>0</b> if unavailable.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual uint64_t GetSurfaceId() const
     {
@@ -358,8 +358,8 @@ public:
      *               SurfaceBuffer::CreateSurfaceBuffer.
      * @return Returns <b>0</b> if the operation is successful; returns an error code
      *         otherwise (see innerkits buffer_common.h).
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual int32_t AttachBuffer(SurfaceBuffer* buffer)
     {
@@ -378,8 +378,8 @@ public:
      * @param buffer Indicates the buffer to detach.
      * @return Returns <b>0</b> if the operation is successful; returns an error code
      *         otherwise.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual int32_t DetachBuffer(SurfaceBuffer* buffer)
     {
@@ -393,8 +393,8 @@ public:
      * If the listener is repeatedly registered, only the latest one is retained.
      *
      * @param listener Indicates the listener to register.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual void RegisterProducerListener(IProducerListener& listener)
     {
@@ -404,8 +404,8 @@ public:
     /**
      * @brief Unregisters the producer listener.
      *
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual void UnregisterProducerListener() {}
 

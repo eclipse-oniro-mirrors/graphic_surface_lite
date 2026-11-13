@@ -23,7 +23,7 @@
  * modules across processes.
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 /**
@@ -34,7 +34,7 @@
  *
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 
 #ifndef GRAPHIC_LITE_SURFACE_BUFFER_H
@@ -52,8 +52,8 @@ namespace OHOS {
  * produces out-of-order segments must sort them in the HAL adapter layer
  * before calling SetChunk with indexes 0,1,2,... in ascending order.
  *
- * @since 4.0
- * @version 1.0
+ * @since 26.1.0
+ * @version 26.1.0
  */
 struct SurfaceDataChunk {
     /** Virtual address of the segment. */
@@ -75,7 +75,7 @@ struct SurfaceDataChunk {
  *
  *
  * @since 1.0
- * @version 1.0
+ * @version 26.1.0
  */
 class SurfaceBuffer {
 public:
@@ -88,8 +88,8 @@ public:
      * DetachBuffer followed by DestroySurfaceBuffer).
      *
      * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     static SurfaceBuffer* CreateSurfaceBuffer();
 
@@ -105,8 +105,8 @@ public:
      * @param buffer Indicates the buffer wrapper to destroy.
      * @return Returns <b>0</b> if the operation is successful; returns an error
      *         code otherwise.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     static int32_t DestroySurfaceBuffer(SurfaceBuffer* buffer);
 
@@ -114,10 +114,10 @@ public:
      * @brief Obtains the virtual address of shared memory for producers and consumers.
      *
      * @return Returns the virtual address of shared memory.
-     * @deprecated Since 4.0. Single-segment buffers behave as before; multi-segment
+     * @deprecated Since 26.1.0. Single-segment buffers behave as before; multi-segment
      *             buffers (GetChunkCount() > 1) return <b>nullptr</b>. Use GetChunk instead.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void* GetVirAddr() const = 0;
 
@@ -125,10 +125,10 @@ public:
      * @brief Obtains the physical address of shared memory.
      *
      * @return Returns the physical address of shared memory.
-     * @deprecated Since 4.0. Single-segment buffers behave as before; multi-segment
+     * @deprecated Since 26.1.0. Single-segment buffers behave as before; multi-segment
      *             buffers (GetChunkCount() > 1) return <b>0</b>. Use GetChunk instead.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint64_t GetPhyAddr() const = 0;
 
@@ -136,10 +136,10 @@ public:
      * @brief Obtains the size of shared memory.
      *
      * @return Returns the size of shared memory.
-     * @deprecated Since 4.0. Single-segment buffers behave as before; multi-segment
+     * @deprecated Since 26.1.0. Single-segment buffers behave as before; multi-segment
      *             buffers (GetChunkCount() > 1) return <b>0</b>. Use GetTotalDataSize instead.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetSize() const = 0;
 
@@ -148,7 +148,7 @@ public:
      *
      * @param size Indicates the size of shared memory to set.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual void SetSize(uint32_t size) = 0;
 
@@ -163,7 +163,7 @@ public:
      * @param value Indicates the value of the key-value pair to set.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual int32_t SetInt32(uint32_t key, int32_t value) = 0;
 
@@ -177,7 +177,7 @@ public:
      * @param value Indicates the value of the key-value pair obtained.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual int32_t GetInt32(uint32_t key, int32_t& value) = 0;
 
@@ -191,7 +191,7 @@ public:
      * @param value Indicates the value of the key-value pair to set.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual int32_t SetInt64(uint32_t key, int64_t value) = 0;
 
@@ -205,7 +205,7 @@ public:
      * @param value Indicates the value of the key-value pair obtained.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
      * @since 1.0
-     * @version 1.0
+     * @version 26.1.0
      */
     virtual int32_t GetInt64(uint32_t key, int64_t& value) = 0;
 
@@ -219,8 +219,8 @@ public:
      * @param index Indicates the segment index, in [0, SURFACE_MAX_CHUNK_NUM).
      * @param chunk Indicates the segment to set.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual int32_t SetChunk(uint8_t index, const SurfaceDataChunk& chunk)
     {
@@ -238,8 +238,8 @@ public:
      * @param index Indicates the segment index.
      * @param chunk Indicates the segment obtained.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const
     {
@@ -255,8 +255,8 @@ public:
      * (legacy view). The return value is never less than 1 for valid buffer implementations.
      *
      * @return Returns the number of segments.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetChunkCount() const
     {
@@ -269,8 +269,8 @@ public:
      * For buffers whose segments have never been set, the legacy GetSize value is returned.
      *
      * @return Returns the total data size in bytes.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual uint32_t GetTotalDataSize() const
     {
@@ -291,8 +291,8 @@ public:
      * @param format Indicates the frame format to set (SurfaceBufferFormat).
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b>
      *         if the format is out of the domain.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual int32_t SetBufferFormat(SurfaceBufferFormat format)
     {
@@ -306,8 +306,8 @@ public:
      * @return Returns the frame format (SurfaceBufferFormat); returns
      *         SURFACE_BUFFER_FORMAT_NONE if never set, in which case the
      *         surface-level format applies.
-     * @since 4.0
-     * @version 1.0
+     * @since 26.1.0
+     * @version 26.1.0
      */
     virtual SurfaceBufferFormat GetBufferFormat() const
     {
