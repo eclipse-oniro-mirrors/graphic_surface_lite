@@ -56,15 +56,7 @@ if (ohos_kernel_type == "liteos_m") {
       "//drivers/peripheral/display/interfaces/include",
     ]
     public_configs = [ ":surface_public_config" ]
-    if (surface_lite_single_process) {
-      # Single process mode uses graphic utils as headers only; the default
-      # graphic_config.h lives in the utils innerkits directory.
-      public_configs += [ ":surface_single_process_config" ]
-      public_deps = []
-    } else {
-      # Cross process mode links the graphic utils library as before.
-      public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
-    }
+    public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
     deps = [ "//third_party/bounds_checking_function:libsec_static" ]
     if (!surface_lite_single_process) {
       deps += [
@@ -105,15 +97,7 @@ if (ohos_kernel_type == "liteos_m") {
       "//drivers/peripheral/display/interfaces/include",
     ]
     public_configs = [ ":surface_public_config" ]
-    if (surface_lite_single_process) {
-      # Single process mode uses graphic utils as headers only; the default
-      # graphic_config.h lives in the utils innerkits directory.
-      public_configs += [ ":surface_single_process_config" ]
-      public_deps = []
-    } else {
-      # Cross process mode links the graphic utils library as before.
-      public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
-    }
+    public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
     deps = [ "//third_party/bounds_checking_function:libsec_shared" ]
     if (!surface_lite_single_process) {
       deps += [
@@ -157,8 +141,4 @@ config("surface_public_config") {
     "interfaces/kits",
     "//foundation/graphic/graphic_utils_lite/interfaces/kits",
   ]
-}
-
-config("surface_single_process_config") {
-  include_dirs = [ "//foundation/graphic/graphic_utils_lite/interfaces/innerkits" ]
 }
