@@ -40,16 +40,6 @@ public:
     static Surface* GenericSurfaceByIpcIo(IpcIo& io);
 #endif
 
-#ifdef SURFACE_LITE_SINGLE_PROCESS
-    /**
-     * @brief Create a producer proxy sharing the buffer queue of the consumer
-     *        surface (single process mode only).
-     * @param [in] consumerSurface, the registered consumer surface.
-     * @returns Surface pointer; nullptr if consumerSurface is invalid.
-     */
-    static Surface* CreateProducerProxy(Surface* consumerSurface);
-#endif
-
     /**
      * @brief Surface Constructor, used for consumer.
      * @returns Surface pointer.
@@ -228,11 +218,6 @@ public:
     int32_t AttachBuffer(SurfaceBuffer* buffer) override;
 
     /**
-     * @brief Detach an externally allocated buffer. Producer side.
-     */
-    int32_t DetachBuffer(SurfaceBuffer* buffer) override;
-
-    /**
      * @brief Register producer listener, mirrored on the shared buffer queue.
      */
     void RegisterProducerListener(IProducerListener& listener) override;
@@ -276,19 +261,11 @@ private:
     SvcIdentity sid_;
     IpcObjectStub objectStub_;
 #endif
-#ifdef SURFACE_LITE_SINGLE_PROCESS
-    /**
-     * @brief SurfaceImpl Constructor, producer proxy sharing a buffer queue
-     *        (single process mode only). Does not register; does not own the producer.
-     */
-    explicit SurfaceImpl(BufferProducer* sharedProducer);
-#endif
     BufferQueueConsumer* consumer_;
     BufferProducer* producer_;
     bool IsConsumer_;
     friend class SurfaceUtils;
     uint64_t surfaceId_ = 0;
-    bool ownProducer_ = true;
 };
 } // end namespace
 #endif

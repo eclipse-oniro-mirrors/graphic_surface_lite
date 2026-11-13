@@ -36,13 +36,8 @@ Surface* Surface::CreateSurface()
 Surface* Surface::CreateSurfaceAsProducer(uint64_t surfaceId)
 {
 #ifdef SURFACE_LITE_SINGLE_PROCESS
-    Surface* consumerSurface = SurfaceUtils::GetInstance()->GetSurface(surfaceId);
-    if (consumerSurface == nullptr) {
-        GRAPHIC_LOGE("CreateSurfaceAsProducer failed: surface id %llu is unknown.",
-                     static_cast<unsigned long long>(surfaceId));
-        return nullptr;
-    }
-    return SurfaceImpl::CreateProducerProxy(consumerSurface);
+    // H routing: the proxy holds only the id; all calls go through the registry.
+    return SurfaceUtils::CreateSurfaceProxy(surfaceId);
 #else
     // Cross process: use the existing path instead — GetSurface(id) plus
     // WriteIoIpcIo on the consumer side, GenericSurfaceByIpcIo on the producer side.

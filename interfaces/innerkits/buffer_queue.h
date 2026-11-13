@@ -208,15 +208,7 @@ public:
      * @returns 0 if succeed; error code otherwise (rejected when queued or acquired).
      */
     int32_t AttachBuffer(SurfaceBufferImpl* buffer);
-
-    /**
-     * @brief Detach an externally allocated buffer.
-     *        Idle (released/queued) buffers are unlinked and destroyed synchronously;
-     *        acquired buffers return SURFACE_ERROR_BUFFER_IN_USE.
-     * @param [in] buffer, external buffer wrapper to detach.
-     * @returns 0 if succeed; error code otherwise.
-     */
-    int32_t DetachBuffer(SurfaceBufferImpl* buffer);
+    bool IsQueueFull();
 
     /**
      * @brief Mirror the producer listener on the queue (single source of callbacks).

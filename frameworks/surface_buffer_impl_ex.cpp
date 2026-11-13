@@ -16,7 +16,6 @@
 #include <cstdint>
 #include <new>
 #include "surface_buffer_impl.h"
-#include "surface_type.h"
 
 namespace OHOS {
 namespace {
@@ -27,8 +26,8 @@ namespace {
  * - SetSize bypasses the capacity check (bufferData_.size is always 0 for
  *   external buffers; capacity correctness is the HAL's responsibility).
  * - GetVirAddr/GetPhyAddr/GetSize follow the three-branch unified view:
- *   0 = fall back to base (legacy view), 1 = identical to chunk[0], >1 = invalid.
- * - SetChunk/GetChunk provide the real segment storage (ordered fill, skip
+ *   0 = fall back to base (legacy view), 1 = identical to chunks[0], >1 = invalid.
+ * - SetFrame/GetFrame provide the real segment storage (ordered fill, skip
  *   rejected, overwrite allowed for ring reuse re-pointing).
  *
  * Defined in an anonymous namespace on purpose: no new header is introduced,
@@ -77,44 +76,42 @@ public:
         return SurfaceBufferImpl::GetSize();
     }
 
-    int32_t SetChunk(uint8_t index, const SurfaceDataChunk& chunk) override
+    int32_t SetFrame(const GraphicFrame& frame) override
     {
-        if (index >= SURFACE_MAX_CHUNK_NUM) {
-            GRAPHIC_LOGD("Chunk index %u is out of range.", index);
+        if (frame.format > GRAPHIC_FRAME_FORMAT_H264) {
+            GRAPHIC_LOGD("Invalid frame format %u.", static_cast<uint32_t>(frame.format));
             return -1;
         }
-        if (index > chunkCount_) {
-            GRAPHIC_LOGD("Chunk index %u skipped, current count is %u.", index, chunkCount_);
+        if (frame.chunkCount == 0 || frame.chunkCount > GRAPHIC_FRAME_MAX_CHUNK_NUM) {
+            GRAPHIC_LOGD("Invalid chunk count %u.", frame.chunkCount);
             return -1;
         }
-        chunks_[index] = chunk;
-        if (index == chunkCount_) {
-            chunkCount_ = static_cast<uint8_t>(index + 1);
+        chunkCount_ = frame.chunkCount;
+        for (uint8_t i = 0; i < frame.chunkCount; i++) {
+            chunks_[i] = frame.chunks[i];
         }
+        bufferFormat_ = frame.format;
         return 0;
     }
 
-    int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const override
+    int32_t GetFrame(GraphicFrame& frame) const override
     {
+        frame.format = bufferFormat_;
+        frame.width = 0;
+        frame.height = 0;
+        frame.chunkCount = chunkCount_ > 0 ? chunkCount_ : 1;
         if (chunkCount_ == 0) {
-            if (index != 0) {
-                GRAPHIC_LOGD("Chunk index %u is out of range.", index);
-                return -1;
+            // Legacy synthesized single-chunk view.
+            frame.chunks[0].virAddr = SurfaceBufferImpl::GetVirAddr();
+            frame.chunks[0].phyAddr = SurfaceBufferImpl::GetPhyAddr();
+            frame.chunks[0].size = SurfaceBufferImpl::GetSize();
+            frame.chunks[0].stride = 0;
+        } else {
+            for (uint8_t i = 0; i < chunkCount_; i++) {
+                frame.chunks[i] = chunks_[i];
             }
-            chunk = GetVirtualChunk();
-            return 0;
         }
-        if (index >= chunkCount_) {
-            GRAPHIC_LOGD("Chunk index %u is out of range.", index);
-            return -1;
-        }
-        chunk = chunks_[index];
         return 0;
-    }
-
-    uint32_t GetChunkCount() const override
-    {
-        return chunkCount_ > 0 ? chunkCount_ : 1;
     }
 
     uint32_t GetTotalDataSize() const override
@@ -125,7 +122,6 @@ public:
         uint32_t total = 0;
         for (uint8_t i = 0; i < chunkCount_; i++) {
             if (total > UINT32_MAX - chunks_[i].size) {
-                // Saturate instead of silently wrapping around on bogus segment sizes.
                 GRAPHIC_LOGD("GetTotalDataSize overflow, saturating.");
                 return UINT32_MAX;
             }
@@ -135,27 +131,29 @@ public:
     }
 
 private:
-    SurfaceDataChunk chunks_[SURFACE_MAX_CHUNK_NUM] = {};
+    GraphicFrameChunk chunks_[GRAPHIC_FRAME_MAX_CHUNK_NUM] = {};
     uint8_t chunkCount_ = 0;
 };
 } // namespace
 
 SurfaceBuffer* SurfaceBuffer::CreateSurfaceBuffer()
 {
-    return new (std::nothrow) SurfaceBufferImplEx();
+    SurfaceBuffer* buffer = new (std::nothrow) SurfaceBufferImplEx();
+    if (buffer == nullptr) {
+        GRAPHIC_LOGE("CreateSurfaceBuffer failed: out of memory.");
+    }
+    return buffer;
 }
 
 int32_t SurfaceBuffer::DestroySurfaceBuffer(SurfaceBuffer* buffer)
 {
     if (buffer == nullptr) {
+        GRAPHIC_LOGE("DestroySurfaceBuffer failed: buffer is null.");
         return SURFACE_ERROR_INVALID_PARAM;
     }
     SurfaceBufferImpl* impl = static_cast<SurfaceBufferImpl*>(buffer);
-    // NONE means the wrapper is not owned by any queue (never attached, or
-    // detached): only then is the HAL allowed to destroy it. Queue-owned
-    // buffers (FLUSH/ACQUIRE/RELEASE) must be detached first.
     if (impl->GetState() != BUFFER_STATE_NONE) {
-        GRAPHIC_LOGI("DestroySurfaceBuffer rejected: buffer is owned by a queue, detach it first.");
+        GRAPHIC_LOGI("DestroySurfaceBuffer rejected: buffer is owned by a queue, release it first.");
         return SURFACE_ERROR_BUFFER_IN_USE;
     }
     delete impl;

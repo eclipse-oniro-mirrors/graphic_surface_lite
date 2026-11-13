@@ -56,13 +56,29 @@ public:
      * @brief Called when a buffer becomes idle (released by the consumer).
      *
      * The semantics is "the buffer is idle now"; whether to reuse it (re-attach)
-     * or return it to the driver is decided by the producer itself.
+     * or destroy it (DestroySurfaceBuffer, the state is NONE after release) is
+     * decided by the producer itself.
      *
      * @param buffer Indicates the pointer to the idle buffer.
      * @since 26.1.0
      * @version 26.1.0
      */
     virtual void OnBufferReleased(SurfaceBuffer* buffer) = 0;
+
+    /**
+     * @brief Called once when the consumer surface (and its queue) is being destroyed
+     *        while producer-side wrappers are still in flight.
+     *
+     * Industry-identical to binder death notification / mojo disconnect: after this
+     * callback, every outstanding wrapper pointer is invalid (the queue deletes them
+     * right after this call), surface calls return errors, and driver memory must be
+     * returned from the producer's own records. The callback runs before wrapper
+     * deletion, so wrapper attributes may be read inside it.
+     *
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual void OnConsumerSurfaceDestroyed() {}
 };
 } // end namespace OHOS
 #endif

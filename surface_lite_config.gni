@@ -13,7 +13,10 @@
 
 declare_args() {
   # Single process multi-thread mode for mini (liteos_m) devices: camera HAL and
-  # graphic framework run in threads of the same process. When true, all IPC and
-  # Gralloc dependencies are compiled out (SURFACE_LITE_SINGLE_PROCESS=1).
-  surface_lite_single_process = false
+  # graphic framework run in threads of the same process, so all IPC and Gralloc
+  # dependencies are compiled out (SURFACE_LITE_SINGLE_PROCESS=1).
+  # Default ON for liteos_m (mini has no IPC infrastructure, single process is
+  # the only usable form); default OFF for other kernels (cross process mode,
+  # baseline identical). Product features or gn args can override either way.
+  surface_lite_single_process = ohos_kernel_type == "liteos_m"
 }

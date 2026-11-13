@@ -24,57 +24,112 @@ ndk_lib("surface_lite_ndk") {
   head_files = [ "interfaces/kits" ]
 }
 
-shared_library("surface") {
-  sources = [
-    "frameworks/buffer_queue.cpp",
-    "frameworks/buffer_queue_consumer.cpp",
-    "frameworks/buffer_queue_producer.cpp",
-    "frameworks/surface.cpp",
-    "frameworks/surface_buffer_impl.cpp",
-    "frameworks/surface_buffer_impl_ex.cpp",
-    "frameworks/surface_impl.cpp",
-    "frameworks/surface_utils.cpp",
-  ]
-  if (surface_lite_single_process) {
-    # Pure IPC and pure Gralloc translation units are excluded from single
-    # process builds (their contents are unreachable by design).
-    defines = [ "SURFACE_LITE_SINGLE_PROCESS=1" ]
-  } else {
-    sources += [
-      "frameworks/buffer_client_producer.cpp",
-      "frameworks/buffer_manager.cpp",
+# liteos_m (mini, bare-metal RTOS) has no dynamic linker: the target is a
+# static library there and libsec links statically. Other kernels keep the
+# original shared_library form (baseline identical). Keep both blocks in sync.
+if (ohos_kernel_type == "liteos_m") {
+  static_library("surface") {
+    sources = [
+      "frameworks/buffer_queue.cpp",
+      "frameworks/buffer_queue_consumer.cpp",
+      "frameworks/buffer_queue_producer.cpp",
+      "frameworks/surface.cpp",
+      "frameworks/surface_buffer_impl.cpp",
+      "frameworks/surface_buffer_impl_ex.cpp",
+      "frameworks/surface_impl.cpp",
+      "frameworks/surface_proxy_impl.cpp",
+      "frameworks/surface_utils.cpp",
     ]
-  }
-  include_dirs = [
-    "frameworks",
-    "//drivers/peripheral/base",
-    "//drivers/peripheral/display/interfaces/include",
-  ]
-  public_configs = [ ":surface_public_config" ]
-  if (surface_lite_single_process) {
-    # Single process mode uses graphic utils as headers only; the default
-    # graphic_config.h lives in the utils innerkits directory.
-    public_configs += [ ":surface_single_process_config" ]
-    public_deps = []
-  } else {
-    # Cross process mode links the graphic utils library as before.
-    public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
-  }
-  deps = [ "//third_party/bounds_checking_function:libsec_shared" ]
-  if (!surface_lite_single_process) {
-    deps += [
-      "//drivers/peripheral/display/hal:hdi_display",
-      "//foundation/communication/ipc/interfaces/innerkits/c/ipc:ipc_single",
+    if (surface_lite_single_process) {
+      # Pure IPC and pure Gralloc translation units are excluded from single
+      # process builds (their contents are unreachable by design).
+      defines = [ "SURFACE_LITE_SINGLE_PROCESS=1" ]
+    } else {
+      sources += [
+        "frameworks/buffer_client_producer.cpp",
+        "frameworks/buffer_manager.cpp",
+      ]
+    }
+    include_dirs = [
+      "frameworks",
+      "//drivers/peripheral/base",
+      "//drivers/peripheral/display/interfaces/include",
     ]
-    ldflags = [
-      "-ldisplay_gfx",
-      "-ldisplay_gralloc",
-      "-ldisplay_layer",
-    ]
+    public_configs = [ ":surface_public_config" ]
+    if (surface_lite_single_process) {
+      # Single process mode uses graphic utils as headers only; the default
+      # graphic_config.h lives in the utils innerkits directory.
+      public_configs += [ ":surface_single_process_config" ]
+      public_deps = []
+    } else {
+      # Cross process mode links the graphic utils library as before.
+      public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
+    }
+    deps = [ "//third_party/bounds_checking_function:libsec_static" ]
+    if (!surface_lite_single_process) {
+      deps += [
+        "//drivers/peripheral/display/hal:hdi_display",
+        "//foundation/communication/ipc/interfaces/innerkits/c/ipc:ipc_single",
+      ]
+    }
+    cflags = [ "-fPIC" ]
+    cflags += [ "-Wall" ]
+    cflags_cc = cflags
   }
-  cflags = [ "-fPIC" ]
-  cflags += [ "-Wall" ]
-  cflags_cc = cflags
+} else {
+  shared_library("surface") {
+    sources = [
+      "frameworks/buffer_queue.cpp",
+      "frameworks/buffer_queue_consumer.cpp",
+      "frameworks/buffer_queue_producer.cpp",
+      "frameworks/surface.cpp",
+      "frameworks/surface_buffer_impl.cpp",
+      "frameworks/surface_buffer_impl_ex.cpp",
+      "frameworks/surface_impl.cpp",
+      "frameworks/surface_proxy_impl.cpp",
+      "frameworks/surface_utils.cpp",
+    ]
+    if (surface_lite_single_process) {
+      # Pure IPC and pure Gralloc translation units are excluded from single
+      # process builds (their contents are unreachable by design).
+      defines = [ "SURFACE_LITE_SINGLE_PROCESS=1" ]
+    } else {
+      sources += [
+        "frameworks/buffer_client_producer.cpp",
+        "frameworks/buffer_manager.cpp",
+      ]
+    }
+    include_dirs = [
+      "frameworks",
+      "//drivers/peripheral/base",
+      "//drivers/peripheral/display/interfaces/include",
+    ]
+    public_configs = [ ":surface_public_config" ]
+    if (surface_lite_single_process) {
+      # Single process mode uses graphic utils as headers only; the default
+      # graphic_config.h lives in the utils innerkits directory.
+      public_configs += [ ":surface_single_process_config" ]
+      public_deps = []
+    } else {
+      # Cross process mode links the graphic utils library as before.
+      public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
+    }
+    deps = [ "//third_party/bounds_checking_function:libsec_shared" ]
+    if (!surface_lite_single_process) {
+      deps += [
+        "//drivers/peripheral/display/hal:hdi_display",
+        "//foundation/communication/ipc/interfaces/innerkits/c/ipc:ipc_single",
+      ]
+      ldflags = [
+        "-ldisplay_gfx",
+        "-ldisplay_gralloc",
+        "-ldisplay_layer",
+      ]
+    }
+    cflags = [ "-fPIC" ]
+    cflags += [ "-Wall" ]
+    cflags_cc = cflags
+  }
 }
 
 if (surface_lite_single_process) {
@@ -86,7 +141,11 @@ if (surface_lite_single_process) {
     include_dirs = [ "frameworks" ]
     public_configs = [ ":surface_public_config" ]
     public_deps = [ ":surface" ]
-    deps = [ "//third_party/bounds_checking_function:libsec_shared" ]
+    if (ohos_kernel_type == "liteos_m") {
+      deps = [ "//third_party/bounds_checking_function:libsec_static" ]
+    } else {
+      deps = [ "//third_party/bounds_checking_function:libsec_shared" ]
+    }
     cflags = [ "-Wall" ]
     cflags_cc = cflags
   }

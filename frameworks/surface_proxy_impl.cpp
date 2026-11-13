@@ -24,10 +24,12 @@ namespace {
 /**
  * @brief Producer-side surface proxy for single process mode.
  *
- * The proxy holds only the consumer surface id. Every call is routed through
- * SurfaceUtils::WithProducer, which holds the registry lock: in-flight calls
- * complete before the consumer can unregister or destroy the queue, and calls
- * issued afterwards fail cleanly with SURFACE_ERROR_NOT_READY.
+ * The proxy holds only the consumer surface id (never a raw producer pointer).
+ * Every call is routed through SurfaceUtils::WithProducer, which holds the
+ * registry lock: in-flight calls complete before the consumer can unregister
+ * or destroy the queue, and calls issued afterwards fail cleanly with
+ * SURFACE_ERROR_NOT_READY instead of dangling. Destruction order no longer
+ * decides safety.
  */
 class SurfaceProxyImpl : public Surface {
 public:
@@ -158,21 +160,21 @@ public:
 
     SurfaceBuffer* AcquireBuffer() override
     {
-        // No consumer end on the proxy.
+        // Producer-side proxy: no consumer end lives here.
         return nullptr;
     }
 
     bool ReleaseBuffer(SurfaceBuffer* buffer) override
     {
         (void)buffer;
-        // No consumer end on the proxy.
+        // Producer-side proxy: no consumer end lives here.
         return false;
     }
 
     void CancelBuffer(SurfaceBuffer* buffer) override
     {
         RETURN_IF_FAIL(buffer != nullptr);
-        WithProducer([&](BufferProducer* p) { p->Cancel(reinterpret_cast<SurfaceBufferImpl*>(buffer) });
+        WithProducer([&](BufferProducer* p) { p->Cancel(reinterpret_cast<SurfaceBufferImpl*>(buffer)); });
     }
 
     void RegisterConsumerListener(IBufferConsumerListener& listener) override
@@ -189,19 +191,19 @@ public:
         });
     }
 
+    bool IsQueueFull() const override
+    {
+        bool full = true;
+        WithProducer([&](BufferProducer* p) { full = reinterpret_cast<BufferQueueProducer*>(p)->IsQueueFull(); });
+        return full;
+    }
+
     int32_t AttachBuffer(SurfaceBuffer* buffer) override
     {
         RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
         int32_t ret = SURFACE_ERROR_NOT_READY;
         WithProducer([&](BufferProducer* p) { ret = p->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer)); });
         return ret;
-    }
-
-    bool IsQueueFull() override
-    {
-        bool full = true;
-        WithProducer([&](BufferProducer* p) { full = reinterpret_cast<BufferQueueProducer*>(p)->IsQueueFull(); });
-        return full;
     }
 
     void RegisterProducerListener(IProducerListener& listener) override
@@ -228,7 +230,7 @@ private:
 Surface* SurfaceUtils::CreateSurfaceProxy(uint64_t surfaceId)
 {
     if (!SurfaceUtils::GetInstance()->AddProxy(surfaceId)) {
-        GRAPHIC_LOGE("CreateSurfaceProxy failed: surface id %llu is unknown.",
+        GRAPHIC_LOGE("CreateSurfaceProxyImpl failed: surface id %llu is unknown.",
                      static_cast<unsigned long long>(surfaceId));
         return nullptr;
     }

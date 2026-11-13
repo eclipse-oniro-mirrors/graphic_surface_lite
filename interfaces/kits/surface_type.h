@@ -23,7 +23,7 @@
  * across processes.
  *
  * @since 1.0
- * @version 26.1.0
+ * @version 1.0
  */
 
 /**
@@ -32,7 +32,7 @@
  * @brief Provides the capabilities of setting shared memory parameters.
  *
  * @since 1.0
- * @version 26.1.0
+ * @version 1.0
  */
 
 #ifndef GRAPHIC_LITE_SURFACE_TYPE_H
@@ -70,30 +70,20 @@ enum BufferConsumerUsage {
 };
 
 /**
- * @brief Maximum number of data segments (chunks) of one buffer.
+ * @brief Standard extra data keys for SurfaceBuffer::SetInt32/GetInt32.
  *
- * One buffer = one frame = 1 to SURFACE_MAX_CHUNK_NUM data segments,
- * covering single-segment RGB, dual-plane NV12/NV21, ring buffer crossing
- * two segments, and stream multi-packet frames.
- */
-constexpr uint8_t SURFACE_MAX_CHUNK_NUM = 5;
-
-/**
- * @brief Closed frame format domain of the buffer-level format tag
- *        (SurfaceBuffer::SetBufferFormat/GetBufferFormat).
+ * Framework-defined keys start from 1; HAL-private keys start from
+ * SURFACE_BUFFER_KEY_USER_BASE (1000). Values are int32; the unit/meaning
+ * of each key is by convention between producer and consumer.
  *
- * This domain is intentionally independent of the ImageFormat enum used by
- * the surface-level attribute (values 0/1xx/2xx/3xx): buffer tags are validated
- * against this enum only, and passing an ImageFormat value is rejected with
- * an error so that the two value spaces cannot be silently mixed.
+ * @since 26.1.0
+ * @version 26.1.0
  */
-enum SurfaceBufferFormat {
-    /** Not set: the surface-level format applies in that case. */
-    SURFACE_BUFFER_FORMAT_NONE = 0,
-    SURFACE_BUFFER_FORMAT_NV12,
-    SURFACE_BUFFER_FORMAT_NV21,
-    SURFACE_BUFFER_FORMAT_JPEG,
-    SURFACE_BUFFER_FORMAT_H264,
+enum SurfaceBufferKey {
+    /** Rotation angle in degrees (int32, e.g. 0/90/180/270). */
+    SURFACE_BUFFER_KEY_ROTATION_DEGREE = 1,
+    /** HAL-private keys start here. */
+    SURFACE_BUFFER_KEY_USER_BASE = 1000
 };
 } // end namespace OHOS
 #endif

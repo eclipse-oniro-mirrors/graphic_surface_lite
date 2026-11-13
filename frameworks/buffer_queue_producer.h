@@ -199,14 +199,7 @@ public:
      * @returns 0 if succeed; error code otherwise.
      */
     int32_t AttachBuffer(SurfaceBufferImpl* buffer) override;
-
-    /**
-     * @brief Detach an externally allocated buffer.
-     *        Delegates to the buffer queue bypass path.
-     * @param [in] buffer, external buffer wrapper to detach.
-     * @returns 0 if succeed; error code otherwise.
-     */
-    int32_t DetachBuffer(SurfaceBufferImpl* buffer) override;
+    bool IsQueueFull();
 
     /**
      * @brief Register producer listener, mirrored on the buffer queue.

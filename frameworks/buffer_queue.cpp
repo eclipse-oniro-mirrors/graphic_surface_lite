@@ -47,9 +47,17 @@ BufferQueue::BufferQueue()
 BufferQueue::~BufferQueue()
 {
     pthread_mutex_lock(&lock_);
+    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
+    // K diagnostic: buffers still ACQUIRED at destruction time (held by the
+    // consumer's own users, dangling risk).
+    uint32_t acquiredCount = 0;
+    for (iterBuffer = allBuffers_.begin(); iterBuffer != allBuffers_.end(); ++iterBuffer) {
+        if ((*iterBuffer)->GetState() == BUFFER_STATE_ACQUIRE) {
+            acquiredCount++;
+        }
+    }
     freeList_.clear();
     dirtyList_.clear();
-    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = allBuffers_.begin(); iterBuffer != allBuffers_.end(); ++iterBuffer) {
         SurfaceBufferImpl* tmpBuffer = *iterBuffer;
 #ifndef SURFACE_LITE_SINGLE_PROCESS
@@ -63,16 +71,34 @@ BufferQueue::~BufferQueue()
 #endif
     }
     allBuffers_.clear();
-    for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
-        // Terminal path: wrappers still attached at queue destruction are
-        // deleted here (the HAL has no chance to destroy them); the driver
-        // memory itself is returned by the HAL.
-        delete *iterBuffer;
+    // D death notification: take the in-flight wrappers and the listener
+    // mirror out, notify outside the lock, then delete the wrappers.
+    std::list<SurfaceBufferImpl *> attached;
+    attached.swap(attachList_);
+    IProducerListener* producerListener = producerListener_;
+    for (iterBuffer = attached.begin(); iterBuffer != attached.end(); ++iterBuffer) {
+        if ((*iterBuffer)->GetState() == BUFFER_STATE_ACQUIRE) {
+            acquiredCount++;
+        }
     }
-    attachList_.clear();
     producerListener_ = nullptr;
     consumerListener_ = nullptr;
     pthread_mutex_unlock(&lock_);
+    if (producerListener != nullptr) {
+        producerListener->OnConsumerSurfaceDestroyed();
+    } else if (!attached.empty()) {
+        GRAPHIC_LOGE("Queue destroyed with %u in-flight wrappers and no producer listener.",
+                     static_cast<uint32_t>(attached.size()));
+    }
+    if (acquiredCount > 0) {
+        GRAPHIC_LOGE("Queue destroyed while %u buffers are still ACQUIRED (dangling risk).", acquiredCount);
+    }
+    // Terminal path: in-flight wrappers are deleted here (the producer treats
+    // them as invalid after OnSurfaceDestroyed); the driver memory is returned
+    // by the HAL from its own records.
+    for (iterBuffer = attached.begin(); iterBuffer != attached.end(); ++iterBuffer) {
+        delete *iterBuffer;
+    }
     pthread_cond_destroy(&freeCond_);
     pthread_mutex_destroy(&lock_);
 }
@@ -254,10 +280,12 @@ int32_t BufferQueue::ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState 
     pthread_mutex_lock(&lock_);
     SurfaceBufferImpl *tmpBuffer = GetAttachedBuffer(buffer);
     if (tmpBuffer != nullptr) {
-        // External buffer bypass: stay in attachList_, never enter freeList_,
-        // never ClearExtraData (driver handles live with the wrapper).
+        // External buffer bypass, Wayland form: release hands full ownership
+        // back to the HAL — unlink from attachList_ and reset to NONE (never
+        // enter freeList_, never ClearExtraData).
         if ((state == BUFFER_STATE_ACQUIRE) && (tmpBuffer->GetState() == BUFFER_STATE_ACQUIRE)) {
-            tmpBuffer->SetState(BUFFER_STATE_RELEASE);
+            attachList_.remove(tmpBuffer);
+            tmpBuffer->SetState(BUFFER_STATE_NONE);
         } else {
             ret = SURFACE_ERROR_BUFFER_NOT_EXISTED;
         }
@@ -488,6 +516,14 @@ int32_t BufferQueue::GetUsage()
     return usage_;
 }
 
+bool BufferQueue::IsQueueFull()
+{
+    pthread_mutex_lock(&lock_);
+    bool full = (attachList_.size() >= queueSize_);
+    pthread_mutex_unlock(&lock_);
+    return full;
+}
+
 int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
 {
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
@@ -499,6 +535,9 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
         GRAPHIC_LOGI("AttachBuffer rejected: framework-managed buffer.");
         return SURFACE_ERROR_INVALID_PARAM;
     }
+    // Release hands full ownership back to the HAL (Wayland form: release
+    // unlinks and resets to NONE), so an idle wrapper simply re-attaches
+    // through the first-attach path below.
     bool existed = false;
     std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
@@ -507,58 +546,28 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
             break;
         }
     }
-    if (!existed) {
-        attachList_.push_back(buffer);
-        buffer->SetState(BUFFER_STATE_FLUSH);
-        dirtyList_.push_back(buffer);
-    } else if (buffer->GetState() == BUFFER_STATE_RELEASE) {
-        // Ring reuse: re-enter the dirty list only, never attachList_ twice
-        // (the destructor would delete the same pointer twice).
-        buffer->SetState(BUFFER_STATE_FLUSH);
-        dirtyList_.push_back(buffer);
-    } else {
+    if (existed) {
+        // Queued (FLUSH) or held (ACQUIRE): reject the double attach.
         pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: buffer is queued or acquired.");
         return SURFACE_ERROR_INVALID_REQUEST;
     }
+    if (attachList_.size() >= queueSize_) {
+        // Flow control: at most queueSize_ external wrappers in flight.
+        // The HAL sets SetQueueSize(N) to match its ring depth.
+        pthread_mutex_unlock(&lock_);
+        GRAPHIC_LOGI("AttachBuffer rejected: queue is full (%u/%u).",
+                     static_cast<uint32_t>(attachList_.size()), queueSize_);
+        return SURFACE_ERROR_INVALID_REQUEST;
+    }
+    attachList_.push_back(buffer);
+    buffer->SetState(BUFFER_STATE_FLUSH);
+    dirtyList_.push_back(buffer);
     pthread_mutex_unlock(&lock_);
     if (consumerListener_ != nullptr) {
         // Callback outside the lock: it may re-enter the surface.
         consumerListener_->OnBufferAvailable();
     }
-    return SURFACE_ERROR_OK;
-}
-
-int32_t BufferQueue::DetachBuffer(SurfaceBufferImpl* buffer)
-{
-    RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
-    pthread_mutex_lock(&lock_);
-    bool existed = false;
-    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
-    for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
-        if (*iterBuffer == buffer) {
-            existed = true;
-            break;
-        }
-    }
-    if (!existed) {
-        pthread_mutex_unlock(&lock_);
-        GRAPHIC_LOGI("DetachBuffer failed: buffer is not attached.");
-        return SURFACE_ERROR_BUFFER_NOT_EXISTED;
-    }
-    if (buffer->GetState() == BUFFER_STATE_ACQUIRE) {
-        pthread_mutex_unlock(&lock_);
-        GRAPHIC_LOGI("DetachBuffer failed: buffer is in use.");
-        return SURFACE_ERROR_BUFFER_IN_USE;
-    }
-    // Ownership returns to the HAL: the wrapper is unlinked and reset to NONE.
-    // The single deletion point is SurfaceBuffer::DestroySurfaceBuffer; the
-    // driver memory is returned by the HAL on its own call stack.
-    dirtyList_.remove(buffer);
-    freeList_.remove(buffer);
-    attachList_.remove(buffer);
-    buffer->SetState(BUFFER_STATE_NONE);
-    pthread_mutex_unlock(&lock_);
     return SURFACE_ERROR_OK;
 }
 

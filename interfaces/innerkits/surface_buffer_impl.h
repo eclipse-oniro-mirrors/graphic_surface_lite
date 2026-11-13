@@ -363,70 +363,43 @@ public:
     void ClearExtraData();
 
     /**
-     * @brief Set one data segment of the buffer (framework-managed buffers do not
-     *        allow segment writing; always returns -1).
-     * @param [in] index segment index.
-     * @param [in] chunk segment to set.
-     * @returns 0 if succeed; -1 otherwise.
+     * @brief Set the complete frame. Framework-managed buffers do not allow
+     *        chunk writing; only the format is stored.
+     * @returns 0 if format is valid; -1 otherwise.
      */
-    int32_t SetChunk(uint8_t index, const SurfaceDataChunk& chunk) override;
-
-    /**
-     * @brief Get one data segment of the buffer. For buffers whose segments have
-     *        never been set, index 0 is synthesized from the legacy single-memory
-     *        view (bufferData_ fields).
-     * @param [in] index segment index.
-     * @param [out] chunk segment obtained.
-     * @returns 0 if succeed; -1 otherwise.
-     */
-    int32_t GetChunk(uint8_t index, SurfaceDataChunk& chunk) const override;
-
-    /**
-     * @brief Get the number of data segments. Framework-managed buffers are always
-     *        single-segment (legacy view), so this always returns 1.
-     * @returns segment count.
-     */
-    uint32_t GetChunkCount() const override;
-
-    /**
-     * @brief Get the total data size of all segments. Equals GetSize() for
-     *        framework-managed buffers.
-     * @returns total data size in bytes.
-     */
-    uint32_t GetTotalDataSize() const override;
-
-    /**
-     * @brief Set the frame-level format tag. The parameter is the closed
-     *        SurfaceBufferFormat enum: other enums are rejected at compile time;
-     *        out-of-domain casts are rejected at runtime.
-     * @returns 0 if succeed; -1 if the format is out of the domain.
-     */
-    int32_t SetBufferFormat(SurfaceBufferFormat format) override
+    int32_t SetFrame(const GraphicFrame& frame) override
     {
-        if (format > SURFACE_BUFFER_FORMAT_H264) {
-            GRAPHIC_LOGD("Invalid buffer format %u.", static_cast<uint32_t>(format));
+        if (frame.format > GRAPHIC_FRAME_FORMAT_H264) {
+            GRAPHIC_LOGD("Invalid frame format %u.", static_cast<uint32_t>(frame.format));
             return -1;
         }
-        bufferFormat_ = format;
+        bufferFormat_ = frame.format;
         return 0;
     }
 
     /**
-     * @brief Get the frame-level format tag; SURFACE_BUFFER_FORMAT_NONE if
-     *        never set (the surface-level format applies in that case).
+     * @brief Get the complete frame: synthesizes a single-chunk legacy view.
      */
-    SurfaceBufferFormat GetBufferFormat() const override
+    int32_t GetFrame(GraphicFrame& frame) const override
     {
-        return bufferFormat_;
+        frame.format = bufferFormat_;
+        frame.width = 0;
+        frame.height = 0;
+        frame.chunkCount = 1;
+        frame.chunks[0].virAddr = bufferData_.virAddr;
+        frame.chunks[0].phyAddr = bufferData_.handle.phyAddr;
+        frame.chunks[0].size = GetSize();
+        frame.chunks[0].stride = static_cast<uint32_t>(bufferData_.handle.stride);
+        return 0;
     }
 
-protected:
     /**
-     * @brief Synthesize the legacy single-memory view into virtualChunk_ and return it.
-     *        Shared by SurfaceBufferImpl and SurfaceBufferImplEx for chunk-0 fallback.
+     * @brief Get the total data size. Equals GetSize() for framework-managed buffers.
+     * @returns total data size in bytes.
      */
-    const SurfaceDataChunk& GetVirtualChunk() const;
+    uint32_t GetTotalDataSize() const override;
 
+protected:
     /**
      * @brief Set data length bypassing the capacity check.
      *        For externally managed buffers whose capacity is owned by the HAL/driver
@@ -450,8 +423,8 @@ private:
     struct SurfaceBufferData bufferData_;
     std::map<uint32_t, ExtraData> extDatas_;
     uint32_t len_;
-    mutable SurfaceDataChunk virtualChunk_ = { nullptr, 0, 0, 0, 0 };
-    SurfaceBufferFormat bufferFormat_ = SURFACE_BUFFER_FORMAT_NONE;
+protected:
+    enum GraphicFrameFormat bufferFormat_ = GRAPHIC_FRAME_FORMAT_NONE;
 };
 } // end namespace
 #endif

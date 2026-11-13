@@ -53,10 +53,6 @@ SurfaceImpl::~SurfaceImpl()
         delete consumer_;
         consumer_ = nullptr;
     }
-    if (!ownProducer_) {
-        // Producer proxy shares the queue-owned producer: never delete it here.
-        producer_ = nullptr;
-    }
     if (producer_ != nullptr) {
         delete producer_;
         producer_ = nullptr;
@@ -118,7 +114,7 @@ bool SurfaceImpl::Init()
             return false;
         }
 #else
-        // Single process: producer surfaces are created via CreateProducerProxy
+        // Single process: producer surfaces are created via CreateSurfaceProxyImpl
         // and never pass through Init.
         GRAPHIC_LOGE("Init failed: producer initialization is unsupported in single process mode.");
         return false;
@@ -291,13 +287,6 @@ int32_t SurfaceImpl::AttachBuffer(SurfaceBuffer* buffer)
     return producer_->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer));
 }
 
-int32_t SurfaceImpl::DetachBuffer(SurfaceBuffer* buffer)
-{
-    RETURN_VAL_IF_FAIL(producer_, SURFACE_ERROR_INVALID_PARAM);
-    RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
-    return producer_->DetachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer));
-}
-
 void SurfaceImpl::RegisterProducerListener(IProducerListener& listener)
 {
     RETURN_IF_FAIL(producer_);
@@ -310,26 +299,6 @@ void SurfaceImpl::UnregisterProducerListener()
     producer_->UnregisterProducerListener();
 }
 
-#ifdef SURFACE_LITE_SINGLE_PROCESS
-SurfaceImpl::SurfaceImpl(BufferProducer* sharedProducer)
-    : consumer_(nullptr), producer_(sharedProducer), IsConsumer_(false), surfaceId_(0), ownProducer_(false)
-{
-}
-
-Surface* SurfaceImpl::CreateProducerProxy(Surface* consumerSurface)
-{
-    RETURN_VAL_IF_FAIL(consumerSurface != nullptr, nullptr);
-    SurfaceImpl* consumer = static_cast<SurfaceImpl*>(consumerSurface);
-    RETURN_VAL_IF_FAIL(consumer->IsConsumer_, nullptr);
-    RETURN_VAL_IF_FAIL(consumer->producer_ != nullptr, nullptr);
-    SurfaceImpl* proxy = new SurfaceImpl(consumer->producer_);
-    if (proxy != nullptr) {
-        return reinterpret_cast<Surface *>(proxy);
-    }
-    GRAPHIC_LOGE("Create producer proxy failed");
-    return nullptr;
-}
-#endif // SURFACE_LITE_SINGLE_PROCESS
 
 #ifndef SURFACE_LITE_SINGLE_PROCESS
 void SurfaceImpl::WriteIoIpcIo(IpcIo& io)

@@ -202,19 +202,6 @@ public:
     }
 
     /**
-     * @brief Detach an externally allocated buffer.
-     *        Default implementation for producers that do not support external
-     *        buffers (for example the cross-process BufferClientProducer).
-     * @param [in] buffer, external buffer wrapper to detach.
-     * @returns -1 (not supported) by default.
-     */
-    virtual int32_t DetachBuffer(SurfaceBufferImpl* buffer)
-    {
-        (void)buffer;
-        return -1;
-    }
-
-    /**
      * @brief Register the producer listener invoked when a buffer becomes idle.
      *        Default no-op for producers without a local buffer queue.
      * @param [in] listener, producer listener.

@@ -399,18 +399,17 @@ int32_t BufferQueueProducer::OnIpcMsg(uint32_t code, IpcIo *data, IpcIo *reply, 
 }
 #endif // SURFACE_LITE_SINGLE_PROCESS
 
+bool BufferQueueProducer::IsQueueFull()
+{
+    RETURN_VAL_IF_FAIL(bufferQueue_, false);
+    return bufferQueue_->IsQueueFull();
+}
+
 int32_t BufferQueueProducer::AttachBuffer(SurfaceBufferImpl* buffer)
 {
     RETURN_VAL_IF_FAIL(bufferQueue_, SURFACE_ERROR_INVALID_PARAM);
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
     return bufferQueue_->AttachBuffer(buffer);
-}
-
-int32_t BufferQueueProducer::DetachBuffer(SurfaceBufferImpl* buffer)
-{
-    RETURN_VAL_IF_FAIL(bufferQueue_, SURFACE_ERROR_INVALID_PARAM);
-    RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
-    return bufferQueue_->DetachBuffer(buffer);
 }
 
 void BufferQueueProducer::RegisterProducerListener(IProducerListener& listener)

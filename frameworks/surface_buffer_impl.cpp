@@ -218,41 +218,8 @@ SurfaceBufferImpl::~SurfaceBufferImpl()
     bufferData_ = bufferData;
 }
 
-int32_t SurfaceBufferImpl::SetChunk(uint8_t index, const SurfaceDataChunk& chunk)
-{
-    (void)index;
-    (void)chunk;
-    GRAPHIC_LOGD("SetChunk is not supported on framework-managed buffers.");
-    return -1;
-}
-
-int32_t SurfaceBufferImpl::GetChunk(uint8_t index, SurfaceDataChunk& chunk) const
-{
-    if (index != 0) {
-        GRAPHIC_LOGD("Invalid chunk index %u.", index);
-        return -1;
-    }
-    chunk = GetVirtualChunk();
-    return 0;
-}
-
-uint32_t SurfaceBufferImpl::GetChunkCount() const
-{
-    return 1;
-}
-
 uint32_t SurfaceBufferImpl::GetTotalDataSize() const
 {
     return GetSize();
-}
-
-const SurfaceDataChunk& SurfaceBufferImpl::GetVirtualChunk() const
-{
-    virtualChunk_.virAddr = bufferData_.virAddr;
-    virtualChunk_.phyAddr = bufferData_.handle.phyAddr;
-    virtualChunk_.size = GetSize();
-    virtualChunk_.stride = static_cast<uint32_t>(bufferData_.handle.stride);
-    virtualChunk_.planeId = 0;
-    return virtualChunk_;
 }
 }
