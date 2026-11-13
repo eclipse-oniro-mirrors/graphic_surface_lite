@@ -209,16 +209,26 @@ public:
 
     /**
      * @brief Get the global unique id of this surface (allocated at construction).
+     *        Producers address the surface through this id (CreateSurfaceAsProducer).
+     * @returns the global surface id; returns <b>0</b> if unavailable (producer
+     *          proxies report the consumer surface id instead).
      */
     uint64_t GetSurfaceId() const override;
 
     /**
-     * @brief Attach an externally allocated (driver-owned) buffer. Producer side.
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     *        The buffer enters the queue bypass path directly; rejected when the
+     *        buffer is queued, acquired or the queue is full. Producer side.
+     * @param [in] buffer, the wrapper created by SurfaceBuffer::CreateSurfaceBuffer.
+     * @returns 0 if succeed; error code otherwise.
      */
     int32_t AttachBuffer(SurfaceBuffer* buffer) override;
 
     /**
      * @brief Register producer listener, mirrored on the shared buffer queue.
+     *        The listener is invoked when a buffer becomes idle (OnBufferReleased)
+     *        and when the consumer surface is destroyed (OnConsumerSurfaceDestroyed).
+     * @param [in] listener, IProducerListener listener.
      */
     void RegisterProducerListener(IProducerListener& listener) override;
 

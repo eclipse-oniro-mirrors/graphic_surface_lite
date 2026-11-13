@@ -199,6 +199,12 @@ public:
      * @returns 0 if succeed; error code otherwise.
      */
     int32_t AttachBuffer(SurfaceBufferImpl* buffer) override;
+
+    /**
+     * @brief Check whether the buffer queue is full (no free slot for another
+     *        AttachBuffer). Delegates to the buffer queue.
+     * @returns true if full; false if at least one slot is free.
+     */
     bool IsQueueFull();
 
     /**

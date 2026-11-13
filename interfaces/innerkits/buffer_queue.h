@@ -205,23 +205,50 @@ public:
      *        enters allBuffers_/freeList_ (the framework allocation/free path is not
      *        applicable to driver-owned memory).
      * @param [in] buffer, external buffer wrapper to attach.
-     * @returns 0 if succeed; error code otherwise (rejected when queued or acquired).
+     * @returns 0 if succeed; error code otherwise (rejected when queued, acquired
+     *          or when the queue already holds queueSize_ external wrappers).
      */
     int32_t AttachBuffer(SurfaceBufferImpl* buffer);
+
+    /**
+     * @brief Check whether the queue is full (no free slot for another AttachBuffer).
+     *        Full means attachList_ already holds queueSize_ external wrappers.
+     * @returns true if full; false if at least one slot is free.
+     */
     bool IsQueueFull();
 
     /**
      * @brief Mirror the producer listener on the queue (single source of callbacks).
+     * @param [in] listener, the producer listener; nullptr unregisters.
      */
     void RegisterProducerListener(IProducerListener* listener);
+
+    /**
+     * @brief Unregister producer listener.
+     */
     void UnregisterProducerListener();
+
+    /**
+     * @brief Get the producer listener currently registered on the queue.
+     * @returns the listener pointer; nullptr if none is registered.
+     */
     IProducerListener* GetProducerListener();
 
     /**
      * @brief Mirror the consumer listener on the queue (single source of callbacks).
+     * @param [in] listener, the consumer listener; nullptr unregisters.
      */
     void RegisterConsumerListener(IBufferConsumerListener* listener);
+
+    /**
+     * @brief Unregister consumer listener.
+     */
     void UnregisterConsumerListener();
+
+    /**
+     * @brief Get the consumer listener currently registered on the queue.
+     * @returns the listener pointer; nullptr if none is registered.
+     */
     IBufferConsumerListener* GetConsumerListener();
 
 private:

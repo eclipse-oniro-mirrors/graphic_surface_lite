@@ -25,6 +25,27 @@
 #include "surface_type.h"
 #include "surface_utils.h"
 
+/*
+ * Single process full-flow example for surface_lite (SURFACE_LITE_SINGLE_PROCESS=1):
+ * a camera HAL producer handing driver-owned buffers to the graphic framework
+ * consumer of the same process. Scenario list mirrors the LITESURFACE-001
+ * codespec record:
+ *  S0  basics: surface id, producer proxy, unknown id, SP request unavailable,
+ *      format round trips, fresh wrapper view + SetFrame domain validation
+ *  S1  RGB single segment: queued destroy rejected, retire-on-release,
+ *      driver memory returned on the release callback
+ *  S2  NV12 ring: dual plane frames, extra data across release cycles,
+ *      total size summation, ring reuse, destroy after idle
+ *  S3  ring crossing two segments + H264 tag: destroy in ACQUIRE rejected,
+ *      retire-on-release through OnBufferReleased
+ *  S4  teardown: proxy keeps the queue alive, consumer unregisters
+ *  S5a destruction order probe: consumer deleted first, calls fail cleanly
+ *  S5b death notify: OnConsumerSurfaceDestroyed with a wrapper in flight
+ *  S5c in-flight teardown without a producer listener (queue deletes wrappers)
+ *  S6  flow control: IsQueueFull at queueSize, attach beyond queueSize rejected
+ *  S7  concurrency: real producer thread vs consumer thread
+ */
+
 namespace OHOS {
 namespace {
 constexpr int32_t FRAME_WIDTH = 320;
@@ -239,6 +260,32 @@ void RunFreshWrapperChecks()
     CHECK(outFrame.format == GRAPHIC_FRAME_FORMAT_NONE, "S0: fresh wrapper format defaults to NONE");
     CHECK(outFrame.chunks[0].virAddr == nullptr && outFrame.chunks[0].size == 1024,
           "S0: synthesized chunk content");
+    // Closed format domain (SetFrame rejection paths).
+    GraphicFrame badFrame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
+    badFrame.chunks[0] = MakeChunk(nullptr, 16);
+    badFrame.format = static_cast<GraphicFrameFormat>(GRAPHIC_FRAME_FORMAT_H264 + 1);
+    CHECK(fresh->SetFrame(badFrame) == -1, "S0: out-of-domain format rejected");
+    badFrame.format = GRAPHIC_FRAME_FORMAT_JPEG;
+    badFrame.chunkCount = 0;
+    CHECK(fresh->SetFrame(badFrame) == -1, "S0: zero chunk count rejected");
+    badFrame.chunkCount = static_cast<uint8_t>(GRAPHIC_FRAME_MAX_CHUNK_NUM + 1);
+    CHECK(fresh->SetFrame(badFrame) == -1, "S0: chunk count overflow rejected");
+    // Valid JPEG frame round trip; a rejected write leaves the stored tag unchanged.
+    GraphicFrame jpegFrame = { .format = GRAPHIC_FRAME_FORMAT_JPEG, .chunkCount = 1 };
+    jpegFrame.chunks[0] = MakeChunk(nullptr, 16);
+    CHECK(fresh->SetFrame(jpegFrame) == 0, "S0: JPEG frame round trip set");
+    GraphicFrame outJpeg = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
+    CHECK(fresh->GetFrame(outJpeg) == 0 && outJpeg.format == GRAPHIC_FRAME_FORMAT_JPEG,
+          "S0: JPEG frame round trip get");
+    CHECK(fresh->SetFrame(badFrame) == -1, "S0: rejected write leaves tag unchanged");
+    CHECK(fresh->GetFrame(outJpeg) == 0 && outJpeg.format == GRAPHIC_FRAME_FORMAT_JPEG,
+          "S0: tag unchanged after rejection");
+    // Clear the tag back to NONE (S1 re-points this wrapper to RGB memory).
+    GraphicFrame noneFrame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
+    noneFrame.chunks[0] = MakeChunk(nullptr, 16);
+    CHECK(fresh->SetFrame(noneFrame) == 0, "S0: clear tag back to NONE");
+    CHECK(fresh->GetFrame(outJpeg) == 0 && outJpeg.format == GRAPHIC_FRAME_FORMAT_NONE,
+          "S0: tag cleared");
     SurfaceBuffer* spare = SurfaceBuffer::CreateSurfaceBuffer();
     CHECK(spare != nullptr, "S0: spare wrapper");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(spare) == SURFACE_ERROR_OK,
@@ -285,6 +332,8 @@ void RunNv12Ring()
         int slot = frameNo % RING_NUM;
         GraphicFrame frame = MakeNv12Frame(slot);
         CHECK(g_hal.ringWrappers[slot]->SetFrame(frame) == 0, "S2: SetFrame NV12");
+        CHECK(g_hal.ringWrappers[slot]->SetInt32(DRIVER_BUF_ID_KEY, frameNo) == 0,
+              "S2: stamp frame id before attach");
         CHECK(g_producerSurface->AttachBuffer(g_hal.ringWrappers[slot]) == SURFACE_ERROR_OK, "S2: AttachBuffer");
         Wait(&g_available);
         SurfaceBuffer* buf = g_consumerSurface->AcquireBuffer();
@@ -295,6 +344,10 @@ void RunNv12Ring()
         CHECK(vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S2: per-frame NV12 format");
         CHECK(vf.chunks[0].size == Y_SIZE, "S2: plane0 size");
         CHECK(vf.chunks[1].size == UV_SIZE, "S2: plane1 size");
+        CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S2: total data size sums planes");
+        int32_t bufId = -1;
+        CHECK(buf->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0 && bufId == frameNo,
+              "S2: extra data survives release cycles (ring slot re-pointed)");
         g_consumerSurface->ReleaseBuffer(buf);
         Wait(&g_released);
     }
@@ -342,6 +395,7 @@ void RunRingCrossingInUse()
           "S3: head segment starts at mid");
     CHECK(s3.chunks[1].virAddr == g_hal.ring2Slot.mem, "S3: tail segment wraps to base");
     CHECK(ring2->GetVirAddr() == nullptr, "S3: legacy view invalidated");
+    CHECK(ring2->GetTotalDataSize() == Y_SIZE, "S3: total data size covers segments");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(ring2) == SURFACE_ERROR_BUFFER_IN_USE,
           "S3: destroy acquired wrapper rejected");
     pthread_mutex_lock(&g_hal.lock);
@@ -396,6 +450,156 @@ void RunDeathNotifyProbe()
     CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S5b: unregistered");
 }
 
+void RunInFlightNoListenerProbe()
+{
+    Surface* consumer = Surface::CreateSurface();
+    CHECK(consumer != nullptr, "S5c: spare consumer");
+    uint64_t id = consumer->GetSurfaceId();
+    Surface* proxy = Surface::CreateSurfaceAsProducer(id);
+    CHECK(proxy != nullptr, "S5c: spare proxy");
+    // No producer listener registered: the queue destructor deletes the
+    // in-flight wrapper itself (K warning path) and the driver memory is
+    // returned from the HAL's own records afterwards.
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
+    SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer();
+    CHECK(wrapper != nullptr, "S5c: probe wrapper");
+    GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
+    frame.chunks[0] = MakeChunk(g_hal.ring2Slot.mem, g_hal.ring2Slot.size);
+    CHECK(wrapper->SetFrame(frame) == 0, "S5c: probe SetFrame");
+    wrapper->SetSize(static_cast<uint32_t>(g_hal.ring2Slot.size));
+    CHECK(proxy->AttachBuffer(wrapper) == SURFACE_ERROR_OK, "S5c: attach in-flight wrapper");
+    delete consumer;
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S5c: unregistered");
+    free(g_hal.ring2Slot.mem);
+    g_hal.ring2Slot.mem = nullptr;
+    g_hal.ring2Slot.freed = true;
+    delete proxy;
+}
+
+void RunFlowControl()
+{
+    Surface* consumer = Surface::CreateSurface();
+    CHECK(consumer != nullptr, "S6: spare consumer");
+    consumer->SetQueueSize(2);
+    Surface* proxy = Surface::CreateSurfaceAsProducer(consumer->GetSurfaceId());
+    CHECK(proxy != nullptr, "S6: spare proxy");
+    SurfaceBuffer* wrappers[3] = { nullptr, nullptr, nullptr };
+    for (int i = 0; i < 3; i++) {
+        wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer();
+        CHECK(wrappers[i] != nullptr, "S6: wrapper");
+        GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
+        frame.chunks[0] = MakeChunk(nullptr, 1024);
+        CHECK(wrappers[i]->SetFrame(frame) == 0, "S6: SetFrame");
+        wrappers[i]->SetSize(1024);
+    }
+    CHECK(proxy->AttachBuffer(wrappers[0]) == SURFACE_ERROR_OK, "S6: attach 1/2");
+    CHECK(proxy->AttachBuffer(wrappers[1]) == SURFACE_ERROR_OK, "S6: attach 2/2");
+    CHECK(proxy->IsQueueFull(), "S6: queue full at queueSize");
+    CHECK(proxy->AttachBuffer(wrappers[2]) == SURFACE_ERROR_INVALID_REQUEST,
+          "S6: attach beyond queueSize rejected");
+    for (int i = 0; i < 2; i++) {
+        SurfaceBuffer* buf = consumer->AcquireBuffer();
+        CHECK(buf != nullptr, "S6: acquire drains the queue");
+        consumer->ReleaseBuffer(buf);
+    }
+    CHECK(!proxy->IsQueueFull(), "S6: queue not full after drain");
+    for (int i = 0; i < 3; i++) {
+        CHECK(SurfaceBuffer::DestroySurfaceBuffer(wrappers[i]) == SURFACE_ERROR_OK,
+              "S6: destroy idle wrapper");
+    }
+    delete proxy;
+    delete consumer;
+}
+
+struct ConcurrentCtx {
+    Surface* consumer;
+    Surface* proxy;
+    DriverSlot slots[RING_NUM];
+    SurfaceBuffer* wrappers[RING_NUM] = { nullptr, nullptr, nullptr };
+    int producerFailures;
+};
+
+ConcurrentCtx g_concurrent;
+
+void* ConcurrentProducerThread(void*)
+{
+    // Real producer thread (delta-spec 5.1): SetFrame + attach happen on the
+    // HAL call stack while the consumer acquires/releases on its own thread.
+    for (int frameNo = 0; frameNo < RING_FRAMES; frameNo++) {
+        int slot = frameNo % RING_NUM;
+        GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.chunks[0] = MakeChunk(g_concurrent.slots[slot].mem, Y_SIZE);
+        frame.chunks[1] = MakeChunk(static_cast<char*>(g_concurrent.slots[slot].mem) + Y_SIZE, UV_SIZE);
+        if (g_concurrent.wrappers[slot]->SetFrame(frame) != 0 ||
+            g_concurrent.wrappers[slot]->SetInt32(DRIVER_BUF_ID_KEY, frameNo) != 0 ||
+            g_concurrent.proxy->AttachBuffer(g_concurrent.wrappers[slot]) != SURFACE_ERROR_OK) {
+            g_concurrent.producerFailures++;
+            Signal(&g_available);
+            return nullptr;
+        }
+        Signal(&g_available);
+        Wait(&g_released); // ring reuse: wait until the consumer releases this slot
+    }
+    return nullptr;
+}
+
+void RunConcurrentRing()
+{
+    g_concurrent = ConcurrentCtx();
+    g_concurrent.consumer = Surface::CreateSurface();
+    CHECK(g_concurrent.consumer != nullptr, "S7: spare consumer");
+    g_concurrent.consumer->SetQueueSize(RING_NUM);
+    // No consumer listener here on purpose: OnBufferAvailable would signal
+    // g_available in addition to the producer's own signal and let the
+    // consumer lap the producer (bool-flag handshake must stay 1:1). The
+    // listener path itself is already covered by S1-S3.
+    g_concurrent.proxy = Surface::CreateSurfaceAsProducer(g_concurrent.consumer->GetSurfaceId());
+    CHECK(g_concurrent.proxy != nullptr, "S7: spare proxy");
+    for (int i = 0; i < RING_NUM; i++) {
+        AllocDriverMem(&g_concurrent.slots[i], Y_SIZE + UV_SIZE);
+        g_concurrent.wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer();
+        CHECK(g_concurrent.wrappers[i] != nullptr, "S7: wrapper");
+    }
+    pthread_t producer;
+    pthread_create(&producer, nullptr, ConcurrentProducerThread, nullptr);
+    int consumed = 0;
+    for (int frameNo = 0; frameNo < RING_FRAMES; frameNo++) {
+        Wait(&g_available);
+        SurfaceBuffer* buf = g_concurrent.consumer->AcquireBuffer();
+        if (buf == nullptr) {
+            // Producer thread stopped early (attach failure): do not wait again.
+            g_fail++;
+            printf("[FAIL] S7: consumer thread acquire (line %d)\n", __LINE__);
+            break;
+        }
+        GraphicFrame vf = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
+        CHECK(buf->GetFrame(vf) == 0, "S7: GetFrame");
+        CHECK(vf.chunkCount == 2 && vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S7: NV12 frame view");
+        CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S7: total data size sums planes");
+        int32_t bufId = -1;
+        CHECK(buf->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0 && bufId == frameNo,
+              "S7: frame id handed over across threads");
+        g_concurrent.consumer->ReleaseBuffer(buf);
+        consumed++;
+        Signal(&g_released);
+    }
+    pthread_join(producer, nullptr);
+    CHECK(g_concurrent.producerFailures == 0, "S7: producer thread attach loop clean");
+    CHECK(consumed == RING_FRAMES, "S7: all frames consumed across threads");
+    uint64_t concurrentId = g_concurrent.consumer->GetSurfaceId();
+    for (int i = 0; i < RING_NUM; i++) {
+        CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_concurrent.wrappers[i]) == SURFACE_ERROR_OK,
+              "S7: destroy idle wrapper");
+        free(g_concurrent.slots[i].mem);
+        g_concurrent.slots[i].mem = nullptr;
+        g_concurrent.slots[i].freed = true;
+    }
+    delete g_concurrent.proxy;
+    delete g_concurrent.consumer;
+    CHECK(SurfaceUtils::GetInstance()->GetSurface(concurrentId) == nullptr,
+          "S7: unregistered");
+}
+
 void RunTeardown()
 {
     pthread_join(g_producerThread, nullptr);
@@ -412,8 +616,11 @@ int Run()
     RunRgbIdentity();
     RunNv12Ring();
     RunRingCrossingInUse();
+    RunFlowControl();
     RunReverseOrderProbe();
     RunDeathNotifyProbe();
+    RunInFlightNoListenerProbe();
+    RunConcurrentRing();
     RunTeardown();
     printf("\n==== surface_lite single process example: %d passed, %d failed ====\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

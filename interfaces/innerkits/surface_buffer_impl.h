@@ -365,7 +365,8 @@ public:
     /**
      * @brief Set the complete frame. Framework-managed buffers do not allow
      *        chunk writing; only the format is stored.
-     * @returns 0 if format is valid; -1 otherwise.
+     * @param [in] frame, the frame description to set (see gfx_utils/graphic_frame.h).
+     * @returns 0 if the format is valid; -1 otherwise.
      */
     int32_t SetFrame(const GraphicFrame& frame) override
     {
@@ -379,6 +380,8 @@ public:
 
     /**
      * @brief Get the complete frame: synthesizes a single-chunk legacy view.
+     * @param [out] frame, the frame description filled (see gfx_utils/graphic_frame.h).
+     * @returns 0 if succeed; -1 otherwise.
      */
     int32_t GetFrame(GraphicFrame& frame) const override
     {
