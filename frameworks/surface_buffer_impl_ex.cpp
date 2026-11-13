@@ -27,8 +27,11 @@ namespace {
  *   external buffers; capacity correctness is the HAL's responsibility).
  * - GetVirAddr/GetPhyAddr/GetSize follow the three-branch unified view:
  *   0 = fall back to base (legacy view), 1 = identical to chunks[0], >1 = invalid.
- * - SetFrame/GetFrame provide the real segment storage (ordered fill, skip
- *   rejected, overwrite allowed for ring reuse re-pointing).
+ * - SetFrame/GetFrame store the complete frame description in one shot:
+ *   the whole GraphicFrame (format, width, height, chunks) is the storage
+ *   unit, replacing the individual chunk setters/getters; rewriting the whole
+ *   frame is allowed for ring reuse re-pointing. chunkCount == 0 means never
+ *   set (legacy synthesized view).
  *
  * Defined in an anonymous namespace on purpose: no new header is introduced,
  * only SurfaceBuffer* is exposed to the HAL.
@@ -45,33 +48,33 @@ public:
 
     void* GetVirAddr() const override
     {
-        if (chunkCount_ > 1) {
+        if (frame_.chunkCount > 1) {
             return nullptr;
         }
-        if (chunkCount_ == 1) {
-            return chunks_[0].virAddr;
+        if (frame_.chunkCount == 1) {
+            return frame_.chunks[0].virAddr;
         }
         return SurfaceBufferImpl::GetVirAddr();
     }
 
     uint64_t GetPhyAddr() const override
     {
-        if (chunkCount_ > 1) {
+        if (frame_.chunkCount > 1) {
             return 0;
         }
-        if (chunkCount_ == 1) {
-            return chunks_[0].phyAddr;
+        if (frame_.chunkCount == 1) {
+            return frame_.chunks[0].phyAddr;
         }
         return SurfaceBufferImpl::GetPhyAddr();
     }
 
     uint32_t GetSize() const override
     {
-        if (chunkCount_ > 1) {
+        if (frame_.chunkCount > 1) {
             return 0;
         }
-        if (chunkCount_ == 1) {
-            return chunks_[0].size;
+        if (frame_.chunkCount == 1) {
+            return frame_.chunks[0].size;
         }
         return SurfaceBufferImpl::GetSize();
     }
@@ -86,53 +89,56 @@ public:
             GRAPHIC_LOGD("Invalid chunk count %u.", frame.chunkCount);
             return -1;
         }
-        chunkCount_ = frame.chunkCount;
+        // Copy field by field: reserved fields and the unused chunk tail stay
+        // zeroed (the graphic_frame.h "must be zero" contract is kept on the
+        // storage side, callers may pass garbage there).
+        frame_ = GraphicFrame();
+        frame_.format = frame.format;
+        frame_.width = frame.width;
+        frame_.height = frame.height;
+        frame_.chunkCount = frame.chunkCount;
         for (uint8_t i = 0; i < frame.chunkCount; i++) {
-            chunks_[i] = frame.chunks[i];
+            frame_.chunks[i] = frame.chunks[i];
         }
-        bufferFormat_ = frame.format;
         return 0;
     }
 
     int32_t GetFrame(GraphicFrame& frame) const override
     {
-        frame.format = bufferFormat_;
-        frame.width = 0;
-        frame.height = 0;
-        frame.chunkCount = chunkCount_ > 0 ? chunkCount_ : 1;
-        if (chunkCount_ == 0) {
+        if (frame_.chunkCount == 0) {
             // Legacy synthesized single-chunk view.
+            frame.format = frame_.format;
+            frame.width = 0;
+            frame.height = 0;
+            frame.chunkCount = 1;
             frame.chunks[0].virAddr = SurfaceBufferImpl::GetVirAddr();
             frame.chunks[0].phyAddr = SurfaceBufferImpl::GetPhyAddr();
             frame.chunks[0].size = SurfaceBufferImpl::GetSize();
             frame.chunks[0].stride = 0;
-        } else {
-            for (uint8_t i = 0; i < chunkCount_; i++) {
-                frame.chunks[i] = chunks_[i];
-            }
+            return 0;
         }
+        frame = frame_;
         return 0;
     }
 
     uint32_t GetTotalDataSize() const override
     {
-        if (chunkCount_ == 0) {
+        if (frame_.chunkCount == 0) {
             return SurfaceBufferImpl::GetTotalDataSize();
         }
         uint32_t total = 0;
-        for (uint8_t i = 0; i < chunkCount_; i++) {
-            if (total > UINT32_MAX - chunks_[i].size) {
+        for (uint8_t i = 0; i < frame_.chunkCount; i++) {
+            if (total > UINT32_MAX - frame_.chunks[i].size) {
                 GRAPHIC_LOGD("GetTotalDataSize overflow, saturating.");
                 return UINT32_MAX;
             }
-            total += chunks_[i].size;
+            total += frame_.chunks[i].size;
         }
         return total;
     }
 
 private:
-    GraphicFrameChunk chunks_[GRAPHIC_FRAME_MAX_CHUNK_NUM] = {};
-    uint8_t chunkCount_ = 0;
+    GraphicFrame frame_ = {};
 };
 } // namespace
 

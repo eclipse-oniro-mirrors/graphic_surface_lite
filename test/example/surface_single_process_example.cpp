@@ -347,6 +347,7 @@ void RunNv12Ring()
         CHECK(buf->GetFrame(vf) == 0, "S2: GetFrame");
         CHECK(vf.chunkCount == 2, "S2: NV12 chunk count is 2");
         CHECK(vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S2: per-frame NV12 format");
+        CHECK(vf.width == FRAME_WIDTH && vf.height == FRAME_HEIGHT, "S2: frame dimensions round trip");
         CHECK(vf.chunks[0].size == Y_SIZE, "S2: plane0 size");
         CHECK(vf.chunks[1].size == UV_SIZE, "S2: plane1 size");
         CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S2: total data size sums planes");
@@ -395,6 +396,7 @@ void RunRingCrossingInUse()
     CHECK(ring2->GetFrame(s3) == 0, "S3: GetFrame");
     CHECK(s3.chunkCount == 2, "S3: two segments");
     CHECK(s3.format == GRAPHIC_FRAME_FORMAT_H264, "S3: per-frame H264 format");
+    CHECK(s3.width == FRAME_WIDTH && s3.height == FRAME_HEIGHT, "S3: frame dimensions round trip");
     CHECK(s3.chunks[0].size + s3.chunks[1].size == Y_SIZE, "S3: segments cover the frame");
     CHECK(s3.chunks[0].virAddr == static_cast<char*>(g_hal.ring2Slot.mem) + g_hal.ring2Mid,
           "S3: head segment starts at mid");
@@ -533,6 +535,8 @@ void* ConcurrentProducerThread(void*)
     for (int frameNo = 0; frameNo < RING_FRAMES; frameNo++) {
         int slot = frameNo % RING_NUM;
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.width = FRAME_WIDTH;
+        frame.height = FRAME_HEIGHT;
         frame.chunks[0] = MakeChunk(g_concurrent.slots[slot].mem, Y_SIZE);
         frame.chunks[1] = MakeChunk(static_cast<char*>(g_concurrent.slots[slot].mem) + Y_SIZE, UV_SIZE);
         if (g_concurrent.wrappers[slot]->SetFrame(frame) != 0 ||
@@ -580,6 +584,7 @@ void RunConcurrentRing()
         GraphicFrame vf = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
         CHECK(buf->GetFrame(vf) == 0, "S7: GetFrame");
         CHECK(vf.chunkCount == 2 && vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S7: NV12 frame view");
+        CHECK(vf.width == FRAME_WIDTH && vf.height == FRAME_HEIGHT, "S7: frame dimensions round trip");
         CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S7: total data size sums planes");
         int32_t bufId = -1;
         CHECK(buf->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0 && bufId == frameNo,
@@ -628,6 +633,8 @@ void* ConcurrentDeathProducer(void*)
         }
         int slot = frameNo % RING_NUM;
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.width = FRAME_WIDTH;
+        frame.height = FRAME_HEIGHT;
         frame.chunks[0] = MakeChunk(g_deathCtx.slots[slot].mem, Y_SIZE);
         frame.chunks[1] = MakeChunk(static_cast<char*>(g_deathCtx.slots[slot].mem) + Y_SIZE, UV_SIZE);
         if (g_deathCtx.wrappers[slot]->SetFrame(frame) != 0 ||
@@ -740,6 +747,8 @@ void* ConcurrentStopProducer(void*)
     for (int frameNo = 0; frameNo < producedFrames; frameNo++) {
         int slot = frameNo % RING_NUM;
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
+        frame.width = FRAME_WIDTH;
+        frame.height = FRAME_HEIGHT;
         frame.chunks[0] = MakeChunk(g_stopCtx.slots[slot].mem, Y_SIZE);
         frame.chunks[1] = MakeChunk(static_cast<char*>(g_stopCtx.slots[slot].mem) + Y_SIZE, UV_SIZE);
         if (g_stopCtx.wrappers[slot]->SetFrame(frame) != 0 ||
