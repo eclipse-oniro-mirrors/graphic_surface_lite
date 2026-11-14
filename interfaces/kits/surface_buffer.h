@@ -61,6 +61,7 @@ public:
      * by DestroySurfaceBuffer.
      *
      * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
+     * @release Surface/DestroySurfaceBuffer {return}
      * @since 26.1.0
      * @version 26.1.0
      */
@@ -78,6 +79,7 @@ public:
      * @param buffer Indicates the buffer wrapper to destroy.
      * @return Returns <b>0</b> if the operation is successful; returns an error
      *         code otherwise.
+     * @see CreateSurfaceBuffer
      * @since 26.1.0
      * @version 26.1.0
      */
