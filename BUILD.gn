@@ -97,7 +97,9 @@ if (ohos_kernel_type == "liteos_m") {
   }
 }
 
-if (surface_lite_single_process) {
+if (surface_lite_build_example) {
+  assert(surface_lite_single_process,
+         "surface_lite_build_example requires surface_lite_single_process")
   # Single process full-flow example: HAL producer thread + consumer thread
   # (attach -> acquire -> release -> OnBufferReleased -> driver memory return
   # -> ring reuse). Used by ASan/UBSan verification.

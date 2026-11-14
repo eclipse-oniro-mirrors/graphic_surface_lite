@@ -19,4 +19,10 @@ declare_args() {
   # the only usable form); default OFF for other kernels (cross process mode,
   # baseline identical). Product features or gn args can override either way.
   surface_lite_single_process = ohos_kernel_type == "liteos_m"
+
+  # Build the single process full-flow example executable. The example is a
+  # verification artifact, so it stays off by default; enable it through
+  # product features or gn args when needed. Requires
+  # surface_lite_single_process.
+  surface_lite_build_example = false
 }

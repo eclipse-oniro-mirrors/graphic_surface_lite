@@ -14,7 +14,8 @@
     "subsystem": "graphic",
     "feature": [],
     "features": [
-      "surface_lite_single_process"
+      "surface_lite_single_process",
+      "surface_lite_build_example"
     ],
     "adapted_system_type": [ "mini", "small" ],
     "rom": "110KB",
