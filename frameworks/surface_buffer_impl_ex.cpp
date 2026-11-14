@@ -37,8 +37,17 @@ namespace {
  */
 class SurfaceBufferImplEx : public SurfaceBufferImpl {
 public:
-    SurfaceBufferImplEx() = default;
-    ~SurfaceBufferImplEx() override = default;
+    explicit SurfaceBufferImplEx(GraphicFrameDataReleaseFunc release)
+    {
+        releaseFunc_ = release;
+    }
+
+    ~SurfaceBufferImplEx() override
+    {
+        if (releaseFunc_ != nullptr) {
+            releaseFunc_(&frame_, frame_.context);
+        }
+    }
 
     void SetSize(uint32_t size) override
     {
@@ -96,6 +105,8 @@ public:
         frame_.width = frame.width;
         frame_.height = frame.height;
         frame_.chunkCount = frame.chunkCount;
+        frame_.drvHandle = frame.drvHandle;
+        frame_.context = frame.context;
         for (uint8_t i = 0; i < frame.chunkCount; i++) {
             frame_.chunks[i] = frame.chunks[i];
         }
@@ -136,14 +147,19 @@ public:
         return total;
     }
 
+    bool HasFrame() const override
+    {
+        return frame_.chunkCount != 0;
+    }
+
 private:
     GraphicFrame frame_ = {};
 };
 } // namespace
 
-SurfaceBuffer* SurfaceBuffer::CreateSurfaceBuffer()
+SurfaceBuffer* SurfaceBuffer::CreateSurfaceBuffer(GraphicFrameDataReleaseFunc release)
 {
-    SurfaceBuffer* buffer = new (std::nothrow) SurfaceBufferImplEx();
+    SurfaceBuffer* buffer = new (std::nothrow) SurfaceBufferImplEx(release);
     if (buffer == nullptr) {
         GRAPHIC_LOGE("CreateSurfaceBuffer failed: out of memory.");
     }

@@ -52,14 +52,16 @@ public:
     virtual ~IProducerListener() {}
 
     /**
-     * @brief Called when a buffer becomes idle (released by the consumer).
+     * @brief Called when a buffer is released by the consumer.
      *
-     * The semantics is "the buffer is idle now"; whether to reuse it (re-attach)
-     * or retire it is decided by the producer itself. Retiring means returning
-     * the driver memory from the producer's own records and destroying the
-     * wrapper by DestroySurfaceBuffer (its state is NONE after release).
+     * Fires for every released wrapper while a listener is registered:
+     * - isReusable = true: the wrapper is idle and returns to the producer —
+     *   re-attach it or destroy it by DestroySurfaceBuffer.
+     * - isReusable = false: observational only — the wrapper is valid inside this
+     *   callback and destroyed right after it returns. Read what you need, do not
+     *   retain, re-attach or destroy the pointer.
      *
-     * @param buffer Indicates the pointer to the idle buffer.
+     * @param buffer Indicates the pointer to the released buffer.
      * @since 26.1.0
      * @version 26.1.0
      */

@@ -196,9 +196,10 @@ public:
      * @brief Attach an externally allocated (driver-owned) buffer.
      *        Delegates to the buffer queue bypass path.
      * @param [in] buffer, external buffer wrapper to attach.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
      * @returns 0 if succeed; error code otherwise.
      */
-    int32_t AttachBuffer(SurfaceBufferImpl* buffer) override;
+    int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable) override;
 
     /**
      * @brief Check whether the buffer queue is full (no free slot for another

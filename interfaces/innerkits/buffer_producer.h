@@ -193,11 +193,13 @@ public:
      *        Default implementation for producers that do not support external
      *        buffers (for example the cross-process BufferClientProducer).
      * @param [in] buffer, external buffer wrapper to attach.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
      * @returns -1 (not supported) by default.
      */
-    virtual int32_t AttachBuffer(SurfaceBufferImpl* buffer)
+    virtual int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
     {
         (void)buffer;
+        (void)isReusable;
         return -1;
     }
 

@@ -198,11 +198,13 @@ public:
         return full;
     }
 
-    int32_t AttachBuffer(SurfaceBuffer* buffer) override
+    int32_t AttachBuffer(SurfaceBuffer* buffer, bool isReusable) override
     {
         RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
         int32_t ret = SURFACE_ERROR_NOT_READY;
-        WithProducer([&](BufferProducer* p) { ret = p->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer)); });
+        WithProducer([&](BufferProducer* p) {
+            ret = p->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer), isReusable);
+        });
         return ret;
     }
 

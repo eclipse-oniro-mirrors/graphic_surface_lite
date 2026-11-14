@@ -217,12 +217,11 @@ public:
 
     /**
      * @brief Attach an externally allocated (driver-owned) buffer.
-     *        The buffer enters the queue bypass path directly; rejected when the
-     *        buffer is queued, acquired or the queue is full. Producer side.
      * @param [in] buffer, the wrapper created by SurfaceBuffer::CreateSurfaceBuffer.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
      * @returns 0 if succeed; error code otherwise.
      */
-    int32_t AttachBuffer(SurfaceBuffer* buffer) override;
+    int32_t AttachBuffer(SurfaceBuffer* buffer, bool isReusable) override;
 
     /**
      * @brief Register producer listener, mirrored on the shared buffer queue.

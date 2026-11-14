@@ -402,6 +402,33 @@ public:
      */
     uint32_t GetTotalDataSize() const override;
 
+    /** @brief Whether a release function was registered at creation. */
+    bool HasReleaseFunc() const
+    {
+        return releaseFunc_ != nullptr;
+    }
+
+    /** @brief Whether the wrapper is returned to the producer on release. */
+    bool IsReusable() const
+    {
+        return reusable_;
+    }
+
+    /** @brief Stamp the attach mode (called by the queue at AttachBuffer). */
+    void SetReusable(bool reusable)
+    {
+        reusable_ = reusable;
+    }
+
+    /**
+     * @brief Whether a frame description was set (SetFrame) by the producer.
+     *        Framework-managed buffers always have the legacy view.
+     */
+    virtual bool HasFrame() const
+    {
+        return true;
+    }
+
 protected:
     /**
      * @brief Set data length bypassing the capacity check.
@@ -412,6 +439,14 @@ protected:
     {
         len_ = size;
     }
+
+    /**
+     * @brief Release function registered at CreateSurfaceBuffer; fired by the
+     *        externally managed wrapper destructor to return the data memory.
+     */
+    GraphicFrameDataReleaseFunc releaseFunc_ = nullptr;
+    /** Attach mode stamp: whether the wrapper is returned to the producer on release. */
+    bool reusable_ = false;
 
 private:
     /**

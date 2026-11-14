@@ -280,19 +280,31 @@ int32_t BufferQueue::ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState 
     pthread_mutex_lock(&lock_);
     SurfaceBufferImpl *tmpBuffer = GetAttachedBuffer(buffer);
     if (tmpBuffer != nullptr) {
-        // External buffer bypass: release hands full ownership
-        // back to the HAL — unlink from attachList_ and reset to NONE (never
-        // enter freeList_, never ClearExtraData).
+        // External buffer bypass: release hands full ownership back to the
+        // producer (reusable) or to the queue (one-way) — unlink from
+        // attachList_ and reset to NONE (never enter freeList_, never ClearExtraData).
+        bool reusable = false;
         if ((state == BUFFER_STATE_ACQUIRE) && (tmpBuffer->GetState() == BUFFER_STATE_ACQUIRE)) {
             attachList_.remove(tmpBuffer);
             tmpBuffer->SetState(BUFFER_STATE_NONE);
+            reusable = tmpBuffer->IsReusable();
         } else {
             ret = SURFACE_ERROR_BUFFER_NOT_EXISTED;
         }
+        IProducerListener* listener = producerListener_;
         pthread_mutex_unlock(&lock_);
-        if ((ret == SURFACE_ERROR_OK) && (producerListener_ != nullptr)) {
-            // Callback outside the lock: it may re-enter the surface.
-            producerListener_->OnBufferReleased(tmpBuffer);
+        if (ret == SURFACE_ERROR_OK) {
+            if (listener != nullptr) {
+                // Callback outside the lock: it may re-enter the surface.
+                // For one-way wrappers this is observational only — the
+                // wrapper is destroyed right after the callback returns.
+                listener->OnBufferReleased(tmpBuffer);
+            }
+            if (!reusable) {
+                // One-way wrapper: the queue finalizes it; the release
+                // function returns the data memory to its owner.
+                delete tmpBuffer;
+            }
         }
         return ret;
     }
@@ -524,10 +536,24 @@ bool BufferQueue::IsQueueFull()
     return full;
 }
 
-int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
+int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
 {
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
     pthread_mutex_lock(&lock_);
+    // One-way wrappers are disposed by the queue at release: without a release
+    // function the data memory would have nobody to return it.
+    if (!isReusable && !buffer->HasReleaseFunc()) {
+        pthread_mutex_unlock(&lock_);
+        GRAPHIC_LOGI("AttachBuffer rejected: one-way wrapper without a release function.");
+        return SURFACE_ERROR_INVALID_REQUEST;
+    }
+    // Reusable wrappers come back through OnBufferReleased: without a listener
+    // there is no return channel.
+    if (isReusable && (producerListener_ == nullptr)) {
+        pthread_mutex_unlock(&lock_);
+        GRAPHIC_LOGI("AttachBuffer rejected: reusable wrapper without a producer listener.");
+        return SURFACE_ERROR_NOT_READY;
+    }
     // Reject framework-managed buffers: attaching one would dual-list it in
     // allBuffers_ and attachList_, causing a double release on queue destruction.
     if (GetBuffer(*buffer) != nullptr) {
@@ -535,7 +561,14 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
         GRAPHIC_LOGI("AttachBuffer rejected: framework-managed buffer.");
         return SURFACE_ERROR_INVALID_PARAM;
     }
-    // Release hands full ownership back to the HAL (release unlinks and
+    // The frame description must be set before attach (checkpoints ordered:
+    // static configuration errors before queue state errors).
+    if (!buffer->HasFrame()) {
+        pthread_mutex_unlock(&lock_);
+        GRAPHIC_LOGI("AttachBuffer rejected: frame description not set.");
+        return SURFACE_ERROR_INVALID_REQUEST;
+    }
+    // Release hands full ownership back to the producer (release unlinks and
     // resets to NONE), so an idle wrapper simply re-attaches through the
     // first-attach path below.
     bool existed = false;
@@ -547,9 +580,14 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
         }
     }
     if (existed) {
-        // Queued (FLUSH) or held (ACQUIRE): reject the double attach.
+        bool acquired = (buffer->GetState() == BUFFER_STATE_ACQUIRE);
         pthread_mutex_unlock(&lock_);
-        GRAPHIC_LOGI("AttachBuffer rejected: buffer is queued or acquired.");
+        if (acquired) {
+            GRAPHIC_LOGI("AttachBuffer rejected: buffer is held by the consumer.");
+            return SURFACE_ERROR_BUFFER_IN_USE;
+        }
+        // Queued (FLUSH): reject the double attach.
+        GRAPHIC_LOGI("AttachBuffer rejected: buffer is queued.");
         return SURFACE_ERROR_INVALID_REQUEST;
     }
     if (attachList_.size() >= queueSize_) {
@@ -560,6 +598,7 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
                      static_cast<uint32_t>(attachList_.size()), queueSize_);
         return SURFACE_ERROR_INVALID_REQUEST;
     }
+    buffer->SetReusable(isReusable);
     attachList_.push_back(buffer);
     buffer->SetState(BUFFER_STATE_FLUSH);
     dirtyList_.push_back(buffer);

@@ -280,11 +280,11 @@ uint64_t SurfaceImpl::GetSurfaceId() const
     return surfaceId_;
 }
 
-int32_t SurfaceImpl::AttachBuffer(SurfaceBuffer* buffer)
+int32_t SurfaceImpl::AttachBuffer(SurfaceBuffer* buffer, bool isReusable)
 {
     RETURN_VAL_IF_FAIL(producer_, SURFACE_ERROR_INVALID_PARAM);
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
-    return producer_->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer));
+    return producer_->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer), isReusable);
 }
 
 void SurfaceImpl::RegisterProducerListener(IProducerListener& listener)

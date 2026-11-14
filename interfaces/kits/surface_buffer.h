@@ -57,15 +57,19 @@ public:
      * @brief Creates a buffer wrapper for externally allocated (driver-owned) memory.
      *
      * The memory is externally owned; the framework never allocates or frees it.
-     * The wrapper is attached to a surface via Surface::AttachBuffer and destroyed
-     * by DestroySurfaceBuffer.
      *
+     * @param release Invoked when the wrapper is destroyed — by DestroySurfaceBuffer,
+     *                by the queue on a one-way release, or at queue destruction —
+     *                to return the described memory to its owner; receives the frame
+     *                including drvHandle and context. May be <b>nullptr</b> when the
+     *                caller manages the memory manually, in which case the wrapper
+     *                can only be attached with isReusable = true.
      * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
      * @release Surface/DestroySurfaceBuffer {return}
      * @since 26.1.0
      * @version 26.1.0
      */
-    static SurfaceBuffer* CreateSurfaceBuffer();
+    static SurfaceBuffer* CreateSurfaceBuffer(GraphicFrameDataReleaseFunc release);
 
     /**
      * @brief Destroys a buffer wrapper created by CreateSurfaceBuffer.
@@ -73,8 +77,9 @@ public:
      * Allowed only when the wrapper is not owned by a queue (never attached, or
      * already released). Calling it on a queue-owned buffer returns
      * SURFACE_ERROR_BUFFER_IN_USE without any
-     * effect. After a successful call the pointer is invalid; calling it again
-     * on the same pointer is undefined behavior.
+     * effect. Destruction returns the described memory through the release
+     * function registered at CreateSurfaceBuffer. After a successful call the
+     * pointer is invalid; calling it again on the same pointer is undefined behavior.
      *
      * @param buffer Indicates the buffer wrapper to destroy.
      * @return Returns <b>0</b> if the operation is successful; returns an error
@@ -89,6 +94,10 @@ public:
      * @brief Sets the complete frame description in one call.
      *
      * Sets the format, dimensions and memory segments of the frame.
+     * Must be called before Surface::AttachBuffer (attaching a wrapper without
+     * a frame is rejected). drvHandle and context identify the buffer to its
+     * owner and are passed back to the release function when the wrapper is
+     * destroyed.
      *
      * @param frame Indicates the complete frame description.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b>

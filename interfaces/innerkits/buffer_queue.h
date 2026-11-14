@@ -205,10 +205,11 @@ public:
      *        enters allBuffers_/freeList_ (the framework allocation/free path is not
      *        applicable to driver-owned memory).
      * @param [in] buffer, external buffer wrapper to attach.
-     * @returns 0 if succeed; error code otherwise (rejected when queued, acquired
-     *          or when the queue already holds queueSize_ external wrappers).
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
+     * @returns 0 if succeed; error code otherwise (rejected when queued, acquired,
+     *          full, or when the mode prerequisites are not met).
      */
-    int32_t AttachBuffer(SurfaceBufferImpl* buffer);
+    int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable);
 
     /**
      * @brief Check whether the queue is full (no free slot for another AttachBuffer).

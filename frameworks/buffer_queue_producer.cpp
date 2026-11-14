@@ -405,11 +405,11 @@ bool BufferQueueProducer::IsQueueFull()
     return bufferQueue_->IsQueueFull();
 }
 
-int32_t BufferQueueProducer::AttachBuffer(SurfaceBufferImpl* buffer)
+int32_t BufferQueueProducer::AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
 {
     RETURN_VAL_IF_FAIL(bufferQueue_, SURFACE_ERROR_INVALID_PARAM);
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
-    return bufferQueue_->AttachBuffer(buffer);
+    return bufferQueue_->AttachBuffer(buffer, isReusable);
 }
 
 void BufferQueueProducer::RegisterProducerListener(IProducerListener& listener)
