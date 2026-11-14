@@ -400,6 +400,11 @@ public:
     /**
      * @brief Unregisters the producer listener.
      *
+     * Safe only after no wrappers are in flight: retire each one in
+     * OnBufferReleased first, or wait for OnConsumerSurfaceDestroyed (the
+     * queue never calls the listener after it returns). Destroying a listener
+     * that is still registered is undefined behavior.
+     *
      * @since 26.1.0
      * @version 26.1.0
      */
