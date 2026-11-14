@@ -47,10 +47,10 @@ BufferQueue::BufferQueue()
 BufferQueue::~BufferQueue()
 {
     pthread_mutex_lock(&lock_);
-    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     // K diagnostic: buffers still ACQUIRED at destruction time (held by the
     // consumer's own users, dangling risk).
     uint32_t acquiredCount = 0;
+    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = allBuffers_.begin(); iterBuffer != allBuffers_.end(); ++iterBuffer) {
         if ((*iterBuffer)->GetState() == BUFFER_STATE_ACQUIRE) {
             acquiredCount++;
@@ -58,6 +58,37 @@ BufferQueue::~BufferQueue()
     }
     freeList_.clear();
     dirtyList_.clear();
+    FreeFrameworkBuffersLocked();
+    // D death notification: take the in-flight wrappers and the listener
+    // mirror out, notify outside the lock, then delete the wrappers.
+    std::list<SurfaceBufferImpl *> attached;
+    attached.swap(attachList_);
+    IProducerListener* producerListener = producerListener_;
+    producerListener_ = nullptr;
+    consumerListener_ = nullptr;
+    pthread_mutex_unlock(&lock_);
+    if (producerListener != nullptr) {
+        producerListener->OnConsumerSurfaceDestroyed();
+    } else if (!attached.empty()) {
+        GRAPHIC_LOGE("Queue destroyed with %u in-flight wrappers and no producer listener.",
+                     static_cast<uint32_t>(attached.size()));
+    } else {
+    }
+    if (acquiredCount > 0) {
+        GRAPHIC_LOGE("Queue destroyed while %u buffers are still ACQUIRED (dangling risk).", acquiredCount);
+    }
+    for (iterBuffer = attached.begin(); iterBuffer != attached.end(); ++iterBuffer) {
+        // The release function returns the driver memory.
+        delete *iterBuffer;
+    }
+    attached.clear();
+    pthread_cond_destroy(&freeCond_);
+    pthread_mutex_destroy(&lock_);
+}
+
+void BufferQueue::FreeFrameworkBuffersLocked()
+{
+    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = allBuffers_.begin(); iterBuffer != allBuffers_.end(); ++iterBuffer) {
         SurfaceBufferImpl* tmpBuffer = *iterBuffer;
 #ifndef SURFACE_LITE_SINGLE_PROCESS
@@ -71,36 +102,6 @@ BufferQueue::~BufferQueue()
 #endif
     }
     allBuffers_.clear();
-    // D death notification: take the in-flight wrappers and the listener
-    // mirror out, notify outside the lock, then delete the wrappers.
-    std::list<SurfaceBufferImpl *> attached;
-    attached.swap(attachList_);
-    IProducerListener* producerListener = producerListener_;
-    for (iterBuffer = attached.begin(); iterBuffer != attached.end(); ++iterBuffer) {
-        if ((*iterBuffer)->GetState() == BUFFER_STATE_ACQUIRE) {
-            acquiredCount++;
-        }
-    }
-    producerListener_ = nullptr;
-    consumerListener_ = nullptr;
-    pthread_mutex_unlock(&lock_);
-    if (producerListener != nullptr) {
-        producerListener->OnConsumerSurfaceDestroyed();
-    } else if (!attached.empty()) {
-        GRAPHIC_LOGE("Queue destroyed with %u in-flight wrappers and no producer listener.",
-                     static_cast<uint32_t>(attached.size()));
-    }
-    if (acquiredCount > 0) {
-        GRAPHIC_LOGE("Queue destroyed while %u buffers are still ACQUIRED (dangling risk).", acquiredCount);
-    }
-    // Terminal path: in-flight wrappers are deleted here (the producer treats
-    // them as invalid after OnSurfaceDestroyed); the driver memory is returned
-    // by the HAL from its own records.
-    for (iterBuffer = attached.begin(); iterBuffer != attached.end(); ++iterBuffer) {
-        delete *iterBuffer;
-    }
-    pthread_cond_destroy(&freeCond_);
-    pthread_mutex_destroy(&lock_);
 }
 
 bool BufferQueue::Init()
@@ -309,34 +310,34 @@ int32_t BufferQueue::ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState 
         return ret;
     }
     tmpBuffer = GetBuffer(buffer);
+    ret = ReleaseFrameworkLocked(tmpBuffer, state);
+    pthread_mutex_unlock(&lock_);
+    pthread_cond_signal(&freeCond_);
+    return ret;
+}
+
+// Framework-allocated buffer path; lock_ is held by the caller.
+int32_t BufferQueue::ReleaseFrameworkLocked(SurfaceBufferImpl* tmpBuffer, BufferState state)
+{
     if (tmpBuffer == nullptr || tmpBuffer->GetState() != state) {
         GRAPHIC_LOGI("Buffer is not existed or state invailed.");
-        ret = SURFACE_ERROR_BUFFER_NOT_EXISTED;
-        goto ERROR;
+        return SURFACE_ERROR_BUFFER_NOT_EXISTED;
     }
-
     if (tmpBuffer->GetDeletePending() == 1) {
         GRAPHIC_LOGI("Release the buffer which state is deletePending.");
         Detach(tmpBuffer);
-        ret = SURFACE_ERROR_OK;
-        goto ERROR;
+        return SURFACE_ERROR_OK;
     }
-
     if (allBuffers_.size() > queueSize_) {
         GRAPHIC_LOGI("Release the buffer: alloc buffer count is more than max queue count.");
         attachCount_--;
         Detach(tmpBuffer);
-        ret = SURFACE_ERROR_OK;
-        goto ERROR;
+        return SURFACE_ERROR_OK;
     }
-
     freeList_.push_back(tmpBuffer);
     tmpBuffer->SetState(BUFFER_STATE_RELEASE);
     tmpBuffer->ClearExtraData();
-ERROR:
-    pthread_mutex_unlock(&lock_);
-    pthread_cond_signal(&freeCond_);
-    return ret;
+    return SURFACE_ERROR_OK;
 }
 
 int32_t BufferQueue::isValidAttr(uint32_t width, uint32_t height, uint32_t format, uint32_t strideAlignment)
@@ -417,6 +418,7 @@ void BufferQueue::SetQueueSize(uint8_t queueSize)
         queueSize_ = queueSize;
         pthread_mutex_unlock(&lock_);
         pthread_cond_signal(&freeCond_);
+    } else {
     }
 }
 
@@ -539,73 +541,67 @@ bool BufferQueue::IsQueueFull()
 int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
 {
     RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
+    int32_t ret;
     pthread_mutex_lock(&lock_);
-    // One-way wrappers are disposed by the queue at release: without a release
-    // function the data memory would have nobody to return it.
+    ret = ValidateAttachLocked(buffer, isReusable);
+    if (ret == SURFACE_ERROR_OK) {
+        buffer->SetReusable(isReusable);
+        attachList_.push_back(buffer);
+        buffer->SetState(BUFFER_STATE_FLUSH);
+        dirtyList_.push_back(buffer);
+    }
+    pthread_mutex_unlock(&lock_);
+    if ((ret == SURFACE_ERROR_OK) && (consumerListener_ != nullptr)) {
+        // Callback outside the lock: it may re-enter the surface.
+        consumerListener_->OnBufferAvailable();
+    }
+    return ret;
+}
+
+// Attach checkpoints, ordered so static configuration errors are reported
+// before queue state errors; lock_ is held by the caller.
+int32_t BufferQueue::ValidateAttachLocked(SurfaceBufferImpl* buffer, bool isReusable)
+{
+    // One-way wrappers are disposed by the queue at release: without a
+    // release function the data memory would have nobody to return it.
     if (!isReusable && !buffer->HasReleaseFunc()) {
-        pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: one-way wrapper without a release function.");
         return SURFACE_ERROR_INVALID_REQUEST;
     }
-    // Reusable wrappers come back through OnBufferReleased: without a listener
-    // there is no return channel.
+    // Reusable wrappers come back through OnBufferReleased: without a
+    // listener there is no return channel.
     if (isReusable && (producerListener_ == nullptr)) {
-        pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: reusable wrapper without a producer listener.");
         return SURFACE_ERROR_NOT_READY;
     }
     // Reject framework-managed buffers: attaching one would dual-list it in
     // allBuffers_ and attachList_, causing a double release on queue destruction.
     if (GetBuffer(*buffer) != nullptr) {
-        pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: framework-managed buffer.");
         return SURFACE_ERROR_INVALID_PARAM;
     }
-    // The frame description must be set before attach (checkpoints ordered:
-    // static configuration errors before queue state errors).
+    // The frame description must be set before attach.
     if (!buffer->HasFrame()) {
-        pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: frame description not set.");
         return SURFACE_ERROR_INVALID_REQUEST;
     }
     // Release hands full ownership back to the producer (release unlinks and
     // resets to NONE), so an idle wrapper simply re-attaches through the
-    // first-attach path below.
-    bool existed = false;
-    std::list<SurfaceBufferImpl *>::iterator iterBuffer;
-    for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {
-        if (*iterBuffer == buffer) {
-            existed = true;
-            break;
-        }
-    }
-    if (existed) {
-        bool acquired = (buffer->GetState() == BUFFER_STATE_ACQUIRE);
-        pthread_mutex_unlock(&lock_);
-        if (acquired) {
+    // first-attach path of AttachBuffer.
+    if (GetAttachedBuffer(*buffer) != nullptr) {
+        if (buffer->GetState() == BUFFER_STATE_ACQUIRE) {
             GRAPHIC_LOGI("AttachBuffer rejected: buffer is held by the consumer.");
             return SURFACE_ERROR_BUFFER_IN_USE;
         }
-        // Queued (FLUSH): reject the double attach.
         GRAPHIC_LOGI("AttachBuffer rejected: buffer is queued.");
         return SURFACE_ERROR_INVALID_REQUEST;
     }
     if (attachList_.size() >= queueSize_) {
         // Flow control: at most queueSize_ external wrappers in flight.
         // The HAL sets SetQueueSize(N) to match its ring depth.
-        pthread_mutex_unlock(&lock_);
         GRAPHIC_LOGI("AttachBuffer rejected: queue is full (%u/%u).",
                      static_cast<uint32_t>(attachList_.size()), queueSize_);
         return SURFACE_ERROR_INVALID_REQUEST;
-    }
-    buffer->SetReusable(isReusable);
-    attachList_.push_back(buffer);
-    buffer->SetState(BUFFER_STATE_FLUSH);
-    dirtyList_.push_back(buffer);
-    pthread_mutex_unlock(&lock_);
-    if (consumerListener_ != nullptr) {
-        // Callback outside the lock: it may re-enter the surface.
-        consumerListener_->OnBufferAvailable();
     }
     return SURFACE_ERROR_OK;
 }

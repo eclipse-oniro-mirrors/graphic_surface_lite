@@ -261,6 +261,12 @@ private:
     SurfaceBufferImpl* GetBuffer(const SurfaceBufferImpl& buffer);
     int32_t ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState state);
     SurfaceBufferImpl* GetAttachedBuffer(const SurfaceBufferImpl& buffer);
+    /** Attach checkpoints (static configuration errors first); lock_ held. */
+    int32_t ValidateAttachLocked(SurfaceBufferImpl* buffer, bool isReusable);
+    /** Framework-allocated buffer release path; lock_ held. */
+    int32_t ReleaseFrameworkLocked(SurfaceBufferImpl* tmpBuffer, BufferState state);
+    /** Free framework-managed buffers; lock_ held. */
+    void FreeFrameworkBuffersLocked();
     uint32_t width_;
     uint32_t height_;
     uint32_t format_;

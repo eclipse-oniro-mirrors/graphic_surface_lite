@@ -259,6 +259,12 @@ public:
     bool Init();
 
 private:
+    /**
+     * @brief Consumer-side init: queue, shared producer and consumer objects.
+     * @returns Init succeed return true, else return false.
+     */
+    bool InitConsumer();
+
 #ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief SurfaceImpl Constructor, used for producer on multi process.
