@@ -44,7 +44,9 @@ public:
 
     ~SurfaceBufferImplEx() override
     {
-        if (releaseFunc_ != nullptr) {
+        // Only a stored frame carries release credentials: destroying a
+        // wrapper whose frame was never set describes no memory to return.
+        if (releaseFunc_ != nullptr && frame_.chunkCount != 0) {
             releaseFunc_(&frame_, frame_.context);
         }
     }
