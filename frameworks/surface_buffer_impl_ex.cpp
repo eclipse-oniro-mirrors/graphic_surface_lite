@@ -29,9 +29,8 @@ namespace {
  *   0 = fall back to base (legacy view), 1 = identical to chunks[0], >1 = invalid.
  * - SetFrame/GetFrame store the complete frame description in one shot:
  *   the whole GraphicFrame (format, width, height, chunks) is the storage
- *   unit, replacing the individual chunk setters/getters; rewriting the whole
- *   frame is allowed for ring reuse re-pointing. chunkCount == 0 means never
- *   set (legacy synthesized view).
+ *   unit; rewriting the whole frame is allowed for ring reuse re-pointing.
+ *   chunkCount == 0 means never set (legacy synthesized view).
  *
  * Defined in an anonymous namespace on purpose: no new header is introduced,
  * only SurfaceBuffer* is exposed to the HAL.

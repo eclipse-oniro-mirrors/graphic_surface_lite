@@ -35,11 +35,11 @@ namespace OHOS {
  * Other modules address a surface by its id instead of passing raw pointers
  * or SvcIdentity around.
  *
- * The registry also hosts the producer-proxy call routing (H): producer proxy
- * calls hold the registry lock, which serializes them against consumer
- * unregistration and queue destruction, so destruction order no longer
- * decides safety. The registry mutex is recursive on purpose: listener
- * callbacks fired inside a routed call may legally re-enter surfaces.
+ * The registry also hosts the producer-proxy call routing: proxy calls run
+ * under the registry lock, serialized against consumer unregistration and
+ * queue destruction, so destruction order does not decide safety. The mutex
+ * is recursive on purpose: listener callbacks fired inside a routed call may
+ * legally re-enter surfaces.
  */
 class SurfaceUtils {
 public:
@@ -82,8 +82,8 @@ public:
 #endif
 
     /**
-     * @brief Count a live producer proxy on a registered surface (K bookkeeping,
-     *        used by the destruction warning).
+     * @brief Count a live producer proxy on a registered surface
+     *        (used by the destruction warning).
      * @returns true if the surface is registered (proxy counted); false if unknown.
      */
     bool AddProxy(uint64_t id);

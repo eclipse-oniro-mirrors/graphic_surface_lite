@@ -70,8 +70,8 @@ public:
      *
      * In single-process mode, the local registry is looked up and a producer proxy sharing
      * the same buffer queue as the consumer surface is returned. \n
-     * In cross-process mode this returns <b>nullptr</b>; use the innerkits
-     * (surfaceId, SvcIdentity) overload instead.
+     * In cross-process mode this returns <b>nullptr</b> (producers follow
+     * the existing cross-process path).
      *
      * @param surfaceId Indicates the global surface id returned by GetSurfaceId of the
      *                  consumer surface.
@@ -336,7 +336,7 @@ public:
      * @brief Obtains the global unique id of this surface.
      *
      * The id is allocated automatically when the consumer surface is created
-     * (PID << 32 | incremental counter) and unregistered when it is destroyed.
+     * and unregistered when it is destroyed.
      *
      * @return Returns the global surface id; returns <b>0</b> if unavailable.
      * @since 26.1.0
@@ -350,14 +350,14 @@ public:
     /**
      * @brief Attaches an externally allocated (driver-owned) buffer to the surface.
      *
-     * The buffer enters the bypass attach list and the dirty queue directly, never the
-     * framework allocation path. Re-attaching a released (idle) buffer re-enters the
-     * dirty queue only (ring reuse); attaching a queued or acquired buffer is rejected.
+     * The buffer enters the queue directly, bypassing the framework allocation
+     * path. Attaching a queued or acquired buffer is rejected; a released
+     * buffer may be attached again (ring reuse).
      *
      * @param buffer Indicates the buffer wrapper created by
      *               SurfaceBuffer::CreateSurfaceBuffer.
-     * @return Returns <b>0</b> if the operation is successful; returns an error code
-     *         otherwise (see innerkits buffer_common.h).
+     * @return Returns <b>0</b> if the operation is successful; returns an error
+     *         code otherwise.
      * @since 26.1.0
      * @version 26.1.0
      */
@@ -369,9 +369,7 @@ public:
 
     /**
      * @brief Checks whether the buffer queue is full (no free slot for another
-     *        AttachBuffer). The HAL calls this before pulling a frame from the driver
-     *        so the driver buffer is never pulled without capacity: pull only when
-     *        IsQueueFull() returns false.
+     *        AttachBuffer). Check this before attaching to avoid a rejected attach.
      * @return Returns <b>true</b> if the queue is full; <b>false</b> if a slot is free.
      * @since 26.1.0
      * @version 26.1.0

@@ -28,8 +28,7 @@
 /*
  * Single process full-flow example for surface_lite (SURFACE_LITE_SINGLE_PROCESS=1):
  * a camera HAL producer handing driver-owned buffers to the graphic framework
- * consumer of the same process. Scenario list mirrors the LITESURFACE-001
- * codespec record:
+ * consumer of the same process. Covered scenarios:
  *  S0  basics: surface id, producer proxy, unknown id, SP request unavailable,
  *      format round trips, fresh wrapper view + SetFrame domain validation
  *  S1  RGB single segment: queued destroy rejected, retire-on-release,

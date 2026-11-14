@@ -280,7 +280,7 @@ int32_t BufferQueue::ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState 
     pthread_mutex_lock(&lock_);
     SurfaceBufferImpl *tmpBuffer = GetAttachedBuffer(buffer);
     if (tmpBuffer != nullptr) {
-        // External buffer bypass, Wayland form: release hands full ownership
+        // External buffer bypass: release hands full ownership
         // back to the HAL — unlink from attachList_ and reset to NONE (never
         // enter freeList_, never ClearExtraData).
         if ((state == BUFFER_STATE_ACQUIRE) && (tmpBuffer->GetState() == BUFFER_STATE_ACQUIRE)) {
@@ -535,9 +535,9 @@ int32_t BufferQueue::AttachBuffer(SurfaceBufferImpl* buffer)
         GRAPHIC_LOGI("AttachBuffer rejected: framework-managed buffer.");
         return SURFACE_ERROR_INVALID_PARAM;
     }
-    // Release hands full ownership back to the HAL (Wayland form: release
-    // unlinks and resets to NONE), so an idle wrapper simply re-attaches
-    // through the first-attach path below.
+    // Release hands full ownership back to the HAL (release unlinks and
+    // resets to NONE), so an idle wrapper simply re-attaches through the
+    // first-attach path below.
     bool existed = false;
     std::list<SurfaceBufferImpl *>::iterator iterBuffer;
     for (iterBuffer = attachList_.begin(); iterBuffer != attachList_.end(); ++iterBuffer) {

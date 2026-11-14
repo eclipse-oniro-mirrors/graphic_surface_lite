@@ -56,9 +56,9 @@ public:
     /**
      * @brief Creates a buffer wrapper for externally allocated (driver-owned) memory.
      *
-     * The memory is owned by the chip driver; the framework never allocates or frees it.
-     * The returned wrapper is attached to a surface via Surface::AttachBuffer. Its
-     * lifecycle pairs with DestroySurfaceBuffer.
+     * The memory is externally owned; the framework never allocates or frees it.
+     * The wrapper is attached to a surface via Surface::AttachBuffer and destroyed
+     * by DestroySurfaceBuffer.
      *
      * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
      * @since 26.1.0
@@ -71,7 +71,7 @@ public:
      *
      * Allowed only when the wrapper is not owned by a queue (never attached, or
      * already released). Calling it on a queue-owned buffer returns
-     * SURFACE_ERROR_BUFFER_IN_USE (see innerkits buffer_common.h) without any
+     * SURFACE_ERROR_BUFFER_IN_USE without any
      * effect. After a successful call the pointer is invalid; calling it again
      * on the same pointer is undefined behavior.
      *
@@ -86,9 +86,7 @@ public:
     /**
      * @brief Sets the complete frame description in one call.
      *
-     * The producer fills a GraphicFrame struct (format, dimensions, chunk
-     * segments) and passes it here — the single entry point for all frame
-     * data. Internally sets the chunk segments and the frame format.
+     * Sets the format, dimensions and memory segments of the frame.
      *
      * @param frame Indicates the complete frame description.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b>
@@ -105,8 +103,7 @@ public:
     /**
      * @brief Gets the complete frame description in one call.
      *
-     * The consumer calls this after acquiring a buffer to get format,
-     * dimensions and chunk segments — no individual getter calls needed.
+     * Gets the format, dimensions and memory segments of the frame.
      *
      * @param frame Indicates the frame description to fill.
      * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.

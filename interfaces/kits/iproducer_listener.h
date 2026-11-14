@@ -41,8 +41,7 @@ class SurfaceBuffer;
 /**
  * @brief Defines the producer listener used to notify producers when a buffer becomes idle.
  *
- * The callback is always invoked outside the queue lock, so it may re-enter the surface
- * (for example calling AttachBuffer or DetachBuffer).
+ * Callbacks may re-enter the surface (for example calling AttachBuffer).
  *
  * @since 26.1.0
  * @version 26.1.0
@@ -69,11 +68,11 @@ public:
      * @brief Called once when the consumer surface (and its queue) is being destroyed
      *        while producer-side wrappers are still in flight.
      *
-     * Industry-identical to binder death notification / mojo disconnect: after this
-     * callback, every outstanding wrapper pointer is invalid (the queue deletes them
-     * right after this call), surface calls return errors, and driver memory must be
-     * returned from the producer's own records. The callback runs before wrapper
-     * deletion, so wrapper attributes may be read inside it.
+     * After this callback, every outstanding wrapper pointer is invalid (the
+     * queue deletes them right after this call), surface calls return errors,
+     * and driver memory must be returned from the producer's own records. The
+     * callback runs before wrapper deletion, so wrapper attributes may be read
+     * inside it.
      *
      * @since 26.1.0
      * @version 26.1.0
