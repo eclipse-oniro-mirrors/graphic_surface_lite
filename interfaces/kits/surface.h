@@ -71,7 +71,9 @@ public:
      * In single-process mode, the local registry is looked up and a producer proxy sharing
      * the same buffer queue as the consumer surface is returned. \n
      * In cross-process mode this returns <b>nullptr</b> (producers follow
-     * the existing cross-process path).
+     * the existing cross-process path). \n
+     * The caller owns the returned proxy and deletes it when done; deleting the proxy
+     * does not delete the shared buffer queue (the consumer surface owns it).
      *
      * @param surfaceId Indicates the global surface id returned by GetSurfaceId of the
      *                  consumer surface.
@@ -383,6 +385,8 @@ public:
      * @brief Registers the producer listener invoked when a buffer becomes idle.
      *
      * If the listener is repeatedly registered, only the latest one is retained.
+     * The listener must remain valid until unregistered (the queue may still
+     * invoke it while wrappers are in flight).
      *
      * @param listener Indicates the listener to register.
      * @since 26.1.0
