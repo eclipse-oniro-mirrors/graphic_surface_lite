@@ -887,15 +887,21 @@ void OneWayRejectionProbes(Surface* proxy, const GraphicFrame& frame)
           "S10: attach without frame rejected");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(noFrame) == SURFACE_ERROR_OK, "S10: cleanup no-frame wrapper");
 
-    // Reusable attach without a listener (separate surface).
+    // Reusable attach without a listener (separate surface), with real
+    // credentials: the self-destroy after the failed attach returns memory.
+    AllocDriverMem(&g_hal.ring2Slot, 4 * 1024);
     Surface* bareConsumer = Surface::CreateSurface();
     Surface* bareProxy = Surface::CreateSurfaceAsProducer(bareConsumer->GetSurfaceId());
     SurfaceBuffer* bare = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(bare != nullptr, "S10: bare wrapper");
-    CHECK(bare->SetFrame(frame) == 0, "S10: frame on bare wrapper");
+    GraphicFrame realFrame = frame;
+    realFrame.drvHandle = 3;
+    realFrame.context = &g_hal.ring2Slot;
+    CHECK(bare->SetFrame(realFrame) == 0, "S10: frame on bare wrapper");
     CHECK(bareProxy->AttachBuffer(bare, true) == SURFACE_ERROR_NOT_READY,
           "S10: reusable without listener rejected");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(bare) == SURFACE_ERROR_OK, "S10: cleanup bare wrapper");
+    CHECK(g_hal.ring2Slot.freed, "S10: self-destroy after failed attach returns memory");
     delete bareProxy;
     delete bareConsumer;
 }
