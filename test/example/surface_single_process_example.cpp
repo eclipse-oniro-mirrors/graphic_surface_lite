@@ -219,6 +219,28 @@ ConsumerListener g_consumerListener;
 EmptyListener g_emptyListener;
 ProducerListener g_producerListener;
 
+class OneWayListener : public IProducerListener {
+public:
+    void OnBufferReleased(SurfaceBuffer* buffer) override
+    {
+        releasedCount++;
+        // The wrapper is still readable inside the callback (destroyed right after).
+        int32_t id = -1;
+        if (buffer->GetInt32(DRIVER_BUF_ID_KEY, id) == 0) {
+            lastId = id;
+        }
+    }
+
+    void OnConsumerSurfaceDestroyed() override
+    {
+        deathNotified = true;
+    }
+
+    int releasedCount = 0;
+    int lastId = -1;
+    bool deathNotified = false;
+};
+
 GraphicFrame MakeNv12Frame(int slotIdx)
 {
     void* yMem = g_hal.ringSlots[slotIdx].mem;
@@ -580,6 +602,48 @@ void* ConcurrentProducerThread(void*)
     return nullptr;
 }
 
+void DestroyRingWrappers(SurfaceBuffer* wrappers[], DriverSlot slots[], int skipIdx)
+{
+    for (int i = 0; i < RING_NUM; i++) {
+        if (i != skipIdx) {
+            CHECK(SurfaceBuffer::DestroySurfaceBuffer(wrappers[i]) == SURFACE_ERROR_OK,
+                  "destroy idle wrapper");
+        }
+        // All driver memory goes back through the release function.
+        CHECK(slots[i].freed, "release function returned driver memory");
+    }
+}
+
+void VerifyConcurrentFrame(SurfaceBuffer* buf, int frameNo)
+{
+    GraphicFrame vf = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
+    CHECK(buf->GetFrame(vf) == 0, "S7: GetFrame");
+    CHECK(vf.chunkCount == 2 && vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S7: NV12 frame view");
+    CHECK(vf.width == FRAME_WIDTH && vf.height == FRAME_HEIGHT, "S7: frame dimensions round trip");
+    CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S7: total data size sums planes");
+    int32_t bufId = -1;
+    CHECK(buf->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0 && bufId == frameNo,
+          "S7: frame id handed over across threads");
+}
+
+int ConsumeReleasedFrames(Surface* consumer, int count)
+{
+    int consumed = 0;
+    for (int frameNo = 0; frameNo < count; frameNo++) {
+        Wait(&g_available);
+        SurfaceBuffer* buf = consumer->AcquireBuffer();
+        if (buf == nullptr) {
+            g_fail++;
+            printf("[FAIL] consumer acquire (line %d)\n", __LINE__);
+            return consumed;
+        }
+        consumer->ReleaseBuffer(buf);
+        consumed++;
+        Signal(&g_released);
+    }
+    return consumed;
+}
+
 void RunConcurrentRing()
 {
     g_concurrent = ConcurrentCtx();
@@ -612,14 +676,7 @@ void RunConcurrentRing()
             printf("[FAIL] S7: consumer thread acquire (line %d)\n", __LINE__);
             break;
         }
-        GraphicFrame vf = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
-        CHECK(buf->GetFrame(vf) == 0, "S7: GetFrame");
-        CHECK(vf.chunkCount == 2 && vf.format == GRAPHIC_FRAME_FORMAT_NV12, "S7: NV12 frame view");
-        CHECK(vf.width == FRAME_WIDTH && vf.height == FRAME_HEIGHT, "S7: frame dimensions round trip");
-        CHECK(buf->GetTotalDataSize() == NV12_TOTAL, "S7: total data size sums planes");
-        int32_t bufId = -1;
-        CHECK(buf->GetInt32(DRIVER_BUF_ID_KEY, bufId) == 0 && bufId == frameNo,
-              "S7: frame id handed over across threads");
+        VerifyConcurrentFrame(buf, frameNo);
         g_concurrent.consumer->ReleaseBuffer(buf);
         consumed++;
         Signal(&g_released);
@@ -628,11 +685,7 @@ void RunConcurrentRing()
     CHECK(g_concurrent.producerFailures == 0, "S7: producer thread attach loop clean");
     CHECK(consumed == RING_FRAMES, "S7: all frames consumed across threads");
     uint64_t concurrentId = g_concurrent.consumer->GetSurfaceId();
-    for (int i = 0; i < RING_NUM; i++) {
-        CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_concurrent.wrappers[i]) == SURFACE_ERROR_OK,
-              "S7: destroy idle wrapper");
-        CHECK(g_concurrent.slots[i].freed, "S7: release function returned driver memory");
-    }
+    DestroyRingWrappers(g_concurrent.wrappers, g_concurrent.slots, -1);
     delete g_concurrent.proxy;
     delete g_concurrent.consumer;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(concurrentId) == nullptr,
@@ -715,19 +768,7 @@ void RunConcurrentConsumerDeath()
     pthread_t producer;
     pthread_create(&producer, nullptr, ConcurrentDeathProducer, nullptr);
     const int consumedBeforeDeath = 4;
-    int consumed = 0;
-    for (int frameNo = 0; frameNo < consumedBeforeDeath; frameNo++) {
-        Wait(&g_available);
-        SurfaceBuffer* buf = g_deathCtx.consumer->AcquireBuffer();
-        if (buf == nullptr) {
-            g_fail++;
-            printf("[FAIL] S8: acquire before consumer death (line %d)\n", __LINE__);
-            break;
-        }
-        g_deathCtx.consumer->ReleaseBuffer(buf);
-        consumed++;
-        Signal(&g_released);
-    }
+    int consumed = ConsumeReleasedFrames(g_deathCtx.consumer, consumedBeforeDeath);
     // Take the next frame's available signal but do NOT consume the frame:
     // frame 4 is queued (FLUSH) and the producer thread is blocked on the
     // released handshake when the teardown below runs.
@@ -745,16 +786,10 @@ void RunConcurrentConsumerDeath()
     CHECK(listener.releasedCount == consumedBeforeDeath, "S8: OnBufferReleased per consumed frame");
     CHECK(consumed == consumedBeforeDeath, "S8: frames consumed before teardown");
     int deadSlot = consumedBeforeDeath % RING_NUM; // the queued frame is frame 'consumedBeforeDeath'
-    for (int i = 0; i < RING_NUM; i++) {
-        if (i != deadSlot) {
-            CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_deathCtx.wrappers[i]) == SURFACE_ERROR_OK,
-                  "S8: destroy surviving idle wrapper");
-        }
-        // The queued wrapper (deadSlot) was already deleted by the queue
-        // destructor; both paths return the driver memory through the
-        // release function.
-        CHECK(g_deathCtx.slots[i].freed, "S8: release function returned driver memory");
-    }
+    // The queued wrapper (deadSlot) was already deleted by the queue
+    // destructor; both paths return the driver memory through the
+    // release function.
+    DestroyRingWrappers(g_deathCtx.wrappers, g_deathCtx.slots, deadSlot);
     delete g_deathCtx.proxy;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S8: unregistered");
 }
@@ -813,19 +848,7 @@ void RunConcurrentProducerStop()
     }
     pthread_t producer;
     pthread_create(&producer, nullptr, ConcurrentStopProducer, nullptr);
-    int consumed = 0;
-    for (int frameNo = 0; frameNo < 3; frameNo++) {
-        Wait(&g_available);
-        SurfaceBuffer* buf = consumer->AcquireBuffer();
-        if (buf == nullptr) {
-            g_fail++;
-            printf("[FAIL] S9: acquire while producer alive (line %d)\n", __LINE__);
-            break;
-        }
-        consumer->ReleaseBuffer(buf);
-        consumed++;
-        Signal(&g_released);
-    }
+    int consumed = ConsumeReleasedFrames(consumer, 3);
     // The producer exits right after attaching the last frame: the queued
     // frame must still be consumable after its thread is gone.
     pthread_join(producer, nullptr);
@@ -841,81 +864,46 @@ void RunConcurrentProducerStop()
         consumed++;
     }
     CHECK(consumed == 4, "S9: all frames drained across the producer stop");
-    for (int i = 0; i < RING_NUM; i++) {
-        CHECK(SurfaceBuffer::DestroySurfaceBuffer(g_stopCtx.wrappers[i]) == SURFACE_ERROR_OK,
-              "S9: destroy idle wrapper");
-        CHECK(g_stopCtx.slots[i].freed, "S9: release function returned driver memory");
-    }
+    DestroyRingWrappers(g_stopCtx.wrappers, g_stopCtx.slots, -1);
     delete g_stopCtx.proxy;
     delete consumer;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S9: unregistered");
 }
 
-void RunOneWayScenario()
+void OneWayRejectionProbes(Surface* proxy, const GraphicFrame& frame)
 {
-    // S10: one-way attach — ownership transfers with the call.
-    class OneWayListener : public IProducerListener {
-    public:
-        void OnBufferReleased(SurfaceBuffer* buffer) override
-        {
-            releasedCount++;
-            // The wrapper is still readable inside the callback (destroyed right after).
-            int32_t id = -1;
-            if (buffer->GetInt32(DRIVER_BUF_ID_KEY, id) == 0) {
-                lastId = id;
-            }
-        }
-
-        void OnConsumerSurfaceDestroyed() override
-        {
-            deathNotified = true;
-        }
-
-        int releasedCount = 0;
-        int lastId = -1;
-        bool deathNotified = false;
-    };
-    OneWayListener listener;
-    Surface* consumer = Surface::CreateSurface();
-    CHECK(consumer != nullptr, "S10: spare consumer");
-    consumer->SetQueueSize(2);
-    uint64_t id = consumer->GetSurfaceId();
-    Surface* proxy = Surface::CreateSurfaceAsProducer(id);
-    CHECK(proxy != nullptr, "S10: spare proxy");
-    proxy->RegisterProducerListener(listener);
-
-    // Rejection: one-way wrapper without a release function.
+    // One-way wrapper without a release function.
     SurfaceBuffer* noHook = SurfaceBuffer::CreateSurfaceBuffer(nullptr);
     CHECK(noHook != nullptr, "S10: wrapper without release function");
-    GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-    frame.chunks[0] = MakeChunk(nullptr, 16);
     CHECK(noHook->SetFrame(frame) == 0, "S10: frame on no-hook wrapper");
     CHECK(proxy->AttachBuffer(noHook, false) == SURFACE_ERROR_INVALID_REQUEST,
           "S10: one-way without release function rejected");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(noHook) == SURFACE_ERROR_OK, "S10: cleanup no-hook wrapper");
 
-    // Rejection: wrapper without a frame description.
+    // Wrapper without a frame description.
     SurfaceBuffer* noFrame = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(noFrame != nullptr, "S10: wrapper without frame");
     CHECK(proxy->AttachBuffer(noFrame, false) == SURFACE_ERROR_INVALID_REQUEST,
           "S10: attach without frame rejected");
     CHECK(SurfaceBuffer::DestroySurfaceBuffer(noFrame) == SURFACE_ERROR_OK, "S10: cleanup no-frame wrapper");
 
-    // Rejection: reusable attach without a listener (separate surface).
-    {
-        Surface* bareConsumer = Surface::CreateSurface();
-        Surface* bareProxy = Surface::CreateSurfaceAsProducer(bareConsumer->GetSurfaceId());
-        SurfaceBuffer* bare = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
-        CHECK(bare != nullptr, "S10: bare wrapper");
-        CHECK(bare->SetFrame(frame) == 0, "S10: frame on bare wrapper");
-        CHECK(bareProxy->AttachBuffer(bare, true) == SURFACE_ERROR_NOT_READY,
-              "S10: reusable without listener rejected");
-        CHECK(SurfaceBuffer::DestroySurfaceBuffer(bare) == SURFACE_ERROR_OK, "S10: cleanup bare wrapper");
-        delete bareProxy;
-        delete bareConsumer;
-    }
+    // Reusable attach without a listener (separate surface).
+    Surface* bareConsumer = Surface::CreateSurface();
+    Surface* bareProxy = Surface::CreateSurfaceAsProducer(bareConsumer->GetSurfaceId());
+    SurfaceBuffer* bare = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
+    CHECK(bare != nullptr, "S10: bare wrapper");
+    CHECK(bare->SetFrame(frame) == 0, "S10: frame on bare wrapper");
+    CHECK(bareProxy->AttachBuffer(bare, true) == SURFACE_ERROR_NOT_READY,
+          "S10: reusable without listener rejected");
+    CHECK(SurfaceBuffer::DestroySurfaceBuffer(bare) == SURFACE_ERROR_OK, "S10: cleanup bare wrapper");
+    delete bareProxy;
+    delete bareConsumer;
+}
 
-    // Main flow: one-way attach, consume, release — the queue disposes.
+void OneWayDisposeFlow(Surface* consumer, Surface* proxy, OneWayListener& listener)
+{
+    // One-way attach, consume, release — the queue disposes after the
+    // observational callback.
     AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
     SurfaceBuffer* w1 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w1 != nullptr, "S10: one-way wrapper");
@@ -933,8 +921,11 @@ void RunOneWayScenario()
     CHECK(listener.releasedCount == 1 && listener.lastId == 42,
           "S10: callback before dispose, wrapper readable inside");
     CHECK(g_hal.ring2Slot.freed, "S10: release function returned driver memory");
+}
 
-    // Unconsumed variant: a one-way frame left in the queue at consumer destruction.
+void OneWayUnconsumedFlow(Surface* consumer, Surface* proxy, OneWayListener& listener)
+{
+    // A one-way frame left in the queue at consumer destruction.
     AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
     SurfaceBuffer* w2 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w2 != nullptr, "S10: unconsumed wrapper");
@@ -949,6 +940,23 @@ void RunOneWayScenario()
     delete consumer;
     CHECK(listener.deathNotified, "S10: death notify with one-way in flight");
     CHECK(g_hal.ring2Slot.freed, "S10: queue destruction returned driver memory");
+}
+
+void RunOneWayScenario()
+{
+    OneWayListener listener;
+    Surface* consumer = Surface::CreateSurface();
+    CHECK(consumer != nullptr, "S10: spare consumer");
+    consumer->SetQueueSize(2);
+    uint64_t id = consumer->GetSurfaceId();
+    Surface* proxy = Surface::CreateSurfaceAsProducer(id);
+    CHECK(proxy != nullptr, "S10: spare proxy");
+    proxy->RegisterProducerListener(listener);
+    GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
+    frame.chunks[0] = MakeChunk(nullptr, 16);
+    OneWayRejectionProbes(proxy, frame);
+    OneWayDisposeFlow(consumer, proxy, listener);
+    OneWayUnconsumedFlow(consumer, proxy, listener);
     delete proxy;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S10: unregistered");
 }
