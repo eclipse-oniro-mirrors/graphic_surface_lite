@@ -68,10 +68,17 @@ constexpr int RING_FRAMES = 6;
 int g_pass = 0;
 int g_fail = 0;
 
-#define CHECK(cond, msg) \
-    do { \
-        if (cond) { g_pass++; } else { g_fail++; printf("[FAIL] %s (line %d)\n", msg, __LINE__); } \
-    } while (0)
+void CheckCond(bool cond, const char* msg, int line)
+{
+    if (cond) {
+        g_pass++;
+    } else {
+        g_fail++;
+        printf("[FAIL] %s (line %d)\n", msg, line);
+    }
+}
+
+#define CHECK(cond, msg) CheckCond(cond, msg, __LINE__)
 
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
@@ -545,7 +552,7 @@ void RunFlowControl()
     Surface* proxy = Surface::CreateSurfaceAsProducer(consumer->GetSurfaceId());
     CHECK(proxy != nullptr, "S6: spare proxy");
     proxy->RegisterProducerListener(g_emptyListener);
-    SurfaceBuffer* wrappers[3] = { nullptr, nullptr, nullptr };
+    SurfaceBuffer* wrappers[3] = { nullptr, nullptr, nullptr }; // 3: two fill the queue, one proves rejection
     for (int i = 0; i < 3; i++) {
         wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
         CHECK(wrappers[i] != nullptr, "S6: wrapper");
@@ -971,6 +978,7 @@ void RunOneWayScenario()
     OneWayDisposeFlow(consumer, proxy, listener);
     OneWayUnconsumedFlow(consumer, proxy, listener);
     delete proxy;
+    proxy = nullptr;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(id) == nullptr, "S10: unregistered");
 }
 
@@ -980,7 +988,9 @@ void RunTeardown()
     // All in-flight wrappers are retired: unregistering is safe now.
     g_producerSurface->UnregisterProducerListener();
     delete g_producerSurface;
+    g_producerSurface = nullptr;
     delete g_consumerSurface;
+    g_consumerSurface = nullptr;
     CHECK(SurfaceUtils::GetInstance()->GetSurface(g_surfaceId) == nullptr,
           "S4: surface unregistered on destruction");
 }
