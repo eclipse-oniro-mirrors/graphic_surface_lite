@@ -370,7 +370,8 @@ public:
      * @return Returns <b>0</b> if the operation is successful; returns an error code otherwise:
      *         - <b>SURFACE_ERROR_INVALID_PARAM</b>: null buffer, or a framework-allocated buffer;
      *         - <b>SURFACE_ERROR_NOT_READY</b>: consumer destroyed, or true without a registered listener;
-     *         - <b>SURFACE_ERROR_INVALID_REQUEST</b>: false without a release function, no frame set, double attach, or queue full;
+     *         - <b>SURFACE_ERROR_INVALID_REQUEST</b>: no release function, no frame set,
+     *           double attach, or queue full;
      *         - <b>SURFACE_ERROR_BUFFER_IN_USE</b>: buffer held by the consumer.
      * @since 26.1.0
      * @version 26.1.0
