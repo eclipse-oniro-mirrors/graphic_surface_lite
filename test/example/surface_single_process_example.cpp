@@ -329,7 +329,7 @@ void RunFreshWrapperChecks()
 
 void RunRgbIdentity()
 {
-    AllocDriverMem(&g_hal.rgbSlot, 64 * 1024); // 65536: wearable RGB frame size (bytes)
+    AllocDriverMem(&g_hal.rgbSlot, 64 * 1024); // 64 * 1024: wearable RGB frame size (bytes)
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     frame.chunkCount = 1;
     frame.chunks[0] = MakeChunk(g_hal.rgbSlot.mem, g_hal.rgbSlot.size);
@@ -401,8 +401,8 @@ void RunNv12Ring()
 
 void RunRingCrossingInUse()
 {
-    AllocDriverMem(&g_hal.ring2Slot, Y_SIZE); // 76800: single Y plane (320*240 bytes)
-    g_hal.ring2Mid = Y_SIZE / 2; // 38400: ring-crossing midpoint
+    AllocDriverMem(&g_hal.ring2Slot, Y_SIZE); // Y_SIZE: single Y plane (320 * 240 bytes)
+    g_hal.ring2Mid = Y_SIZE / 2; // Y_SIZE / 2: ring-crossing midpoint
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S3: CreateSurfaceBuffer");
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
@@ -486,7 +486,7 @@ void RunDeathNotifyProbe()
     Surface* proxy = Surface::CreateSurfaceAsProducer(id);
     CHECK(proxy != nullptr, "S5b: spare proxy");
     proxy->RegisterProducerListener(g_producerListener);
-    AllocDriverMem(&g_hal.ring2Slot, 16 * 1024); // 16384: S5b probe buffer size (bytes)
+    AllocDriverMem(&g_hal.ring2Slot, 16 * 1024); // 16 * 1024: S5b probe buffer size (bytes)
     g_hal.deathNotified = false;
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S5b: probe wrapper");
@@ -514,7 +514,7 @@ void RunInFlightNoListenerProbe()
     CHECK(proxy != nullptr, "S5c: spare proxy");
     // No producer listener registered: the queue destructor deletes the
     // in-flight wrapper itself and the release function returns the memory.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: S5c probe buffer size (bytes)
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8 * 1024: S5c probe buffer size (bytes)
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S5c: probe wrapper");
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
@@ -889,7 +889,7 @@ void OneWayRejectionProbes(Surface* proxy, const GraphicFrame& frame)
 
     // Reusable attach without a listener (separate surface), with real
     // credentials: the self-destroy after the failed attach returns memory.
-    AllocDriverMem(&g_hal.ring2Slot, 4 * 1024); // 4096: real-credentials probe buffer size (bytes)
+    AllocDriverMem(&g_hal.ring2Slot, 4 * 1024); // 4 * 1024: real-credentials probe buffer size (bytes)
     Surface* bareConsumer = Surface::CreateSurface();
     Surface* bareProxy = Surface::CreateSurfaceAsProducer(bareConsumer->GetSurfaceId());
     SurfaceBuffer* bare = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
@@ -910,7 +910,7 @@ void OneWayDisposeFlow(Surface* consumer, Surface* proxy, OneWayListener& listen
 {
     // One-way attach, consume, release — the queue disposes after the
     // observational callback.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: one-way probe buffer size (bytes)
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8 * 1024: one-way probe buffer size (bytes)
     SurfaceBuffer* w1 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w1 != nullptr, "S10: one-way wrapper");
     GraphicFrame f1 = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
@@ -932,7 +932,7 @@ void OneWayDisposeFlow(Surface* consumer, Surface* proxy, OneWayListener& listen
 void OneWayUnconsumedFlow(Surface* consumer, Surface* proxy, OneWayListener& listener)
 {
     // A one-way frame left in the queue at consumer destruction.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: unconsumed probe buffer size (bytes)
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8 * 1024: unconsumed probe buffer size (bytes)
     SurfaceBuffer* w2 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w2 != nullptr, "S10: unconsumed wrapper");
     GraphicFrame f2 = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
