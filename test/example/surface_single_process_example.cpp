@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include "buffer_common.h"
+#include "securec.h"
 #include "surface.h"
 #include "surface_buffer.h"
 #include "surface_type.h"
@@ -133,7 +134,13 @@ void AllocDriverMem(DriverSlot* slot, size_t size)
         exit(1);
     }
     slot->size = size;
-    memset(slot->mem, 0xAA, size);
+    // Driver "fills" the frame.
+    if (memset_s(slot->mem, size, 0xAA, size) != EOK) {
+        printf("[FAIL] AllocDriverMem: memset_s failed\n");
+        free(slot->mem);
+        slot->mem = nullptr;
+        exit(1);
+    }
 }
 
 uint64_t SimPhyAddr(void* addr)
