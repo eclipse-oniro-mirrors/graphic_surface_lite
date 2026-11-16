@@ -13,7 +13,6 @@
     "name": "surface_lite",
     "subsystem": "graphic",
     "feature": [],
-    "features": [],
     "adapted_system_type": [ "mini", "small" ],
     "rom": "110KB",
     "ram": "~50KB",
