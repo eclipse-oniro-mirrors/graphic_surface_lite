@@ -63,7 +63,7 @@ uint64_t SurfaceUtils::Register(Surface* surface)
 #else
     const uint32_t pid = static_cast<uint32_t>(getpid());
 #endif
-    id = (static_cast<uint64_t>(pid) << 32) | (++counter_);
+    id = (static_cast<uint64_t>(pid) << 32) | (++counter_); // 32: PID occupies the high 32 bits
     SurfaceEntry entry;
     entry.surface = surface;
 #ifndef SURFACE_LITE_SINGLE_PROCESS
