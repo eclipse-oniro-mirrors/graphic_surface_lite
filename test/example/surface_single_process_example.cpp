@@ -68,15 +68,17 @@ constexpr int RING_FRAMES = 6;
 int g_pass = 0;
 int g_fail = 0;
 
-void CHECK(bool cond, const char* msg)
+void CheckCond(bool cond, const char* msg, int line)
 {
     if (cond) {
         g_pass++;
     } else {
         g_fail++;
-        printf("[FAIL] %s\n", msg);
+        printf("[FAIL] %s (line %d)\n", msg, line);
     }
 }
+
+#define CHECK(cond, msg) CheckCond(cond, msg, __LINE__)
 
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t g_cond = PTHREAD_COND_INITIALIZER;
