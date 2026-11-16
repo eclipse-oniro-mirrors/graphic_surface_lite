@@ -249,7 +249,7 @@ GraphicFrame MakeNv12Frame(int slotIdx)
     frame.format = GRAPHIC_FRAME_FORMAT_NV12;
     frame.width = FRAME_WIDTH;
     frame.height = FRAME_HEIGHT;
-    frame.chunkCount = 2;
+    frame.chunkCount = 2; // 2: Y plane + UV plane
     frame.chunks[0] = MakeChunk(yMem, Y_SIZE);
     frame.chunks[1] = MakeChunk(uvMem, UV_SIZE);
     frame.drvHandle = slotIdx;
@@ -401,15 +401,15 @@ void RunNv12Ring()
 
 void RunRingCrossingInUse()
 {
-    AllocDriverMem(&g_hal.ring2Slot, Y_SIZE);
-    g_hal.ring2Mid = Y_SIZE / 2;
+    AllocDriverMem(&g_hal.ring2Slot, Y_SIZE); // 76800: single Y plane (320*240 bytes)
+    g_hal.ring2Mid = Y_SIZE / 2; // 38400: ring-crossing midpoint
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S3: CreateSurfaceBuffer");
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     frame.format = GRAPHIC_FRAME_FORMAT_H264;
     frame.width = FRAME_WIDTH;
     frame.height = FRAME_HEIGHT;
-    frame.chunkCount = 2;
+    frame.chunkCount = 2; // 2: head segment + tail segment
     frame.chunks[0].virAddr = static_cast<char*>(g_hal.ring2Slot.mem) + g_hal.ring2Mid;
     frame.chunks[0].phyAddr = SimPhyAddr(frame.chunks[0].virAddr);
     frame.chunks[0].size = Y_SIZE - static_cast<uint32_t>(g_hal.ring2Mid);
@@ -545,20 +545,20 @@ void RunFlowControl()
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
         frame.chunks[0] = MakeChunk(nullptr, 1024); // 1024: dummy frame size (bytes)
         CHECK(wrappers[i]->SetFrame(frame) == 0, "S6: SetFrame");
-        wrappers[i]->SetSize(1024);
+        wrappers[i]->SetSize(1024); // 1024: dummy buffer size (bytes)
     }
     CHECK(proxy->AttachBuffer(wrappers[0], true) == SURFACE_ERROR_OK, "S6: attach 1/2");
     CHECK(proxy->AttachBuffer(wrappers[1], true) == SURFACE_ERROR_OK, "S6: attach 2/2");
     CHECK(proxy->IsQueueFull(), "S6: queue full at queueSize");
     CHECK(proxy->AttachBuffer(wrappers[2], true) == SURFACE_ERROR_INVALID_REQUEST,
           "S6: attach beyond queueSize rejected");
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; i++) { // 2: drain the two attached wrappers
         SurfaceBuffer* buf = consumer->AcquireBuffer();
         CHECK(buf != nullptr, "S6: acquire drains the queue");
         consumer->ReleaseBuffer(buf);
     }
     CHECK(!proxy->IsQueueFull(), "S6: queue not full after drain");
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; i++) { // 3: all three wrappers (two attached + one rejected)
         CHECK(SurfaceBuffer::DestroySurfaceBuffer(wrappers[i]) == SURFACE_ERROR_OK,
               "S6: destroy idle wrapper");
     }
