@@ -128,7 +128,7 @@ void AllocDriverMem(DriverSlot* slot, size_t size)
     slot->size = 0;
     slot->mem = nullptr;
     slot->freed = false;
-    if (posix_memalign(&slot->mem, 64, size) != 0) {
+    if (posix_memalign(&slot->mem, 64, size) != 0) { // 64: driver buffer alignment (bytes)
         printf("[FAIL] AllocDriverMem failed\n");
         exit(1);
     }
@@ -285,7 +285,7 @@ void RunFreshWrapperChecks()
 {
     SurfaceBuffer* fresh = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(fresh != nullptr, "S0: CreateSurfaceBuffer");
-    fresh->SetSize(1024);
+    fresh->SetSize(1024); // 1024: test buffer size (bytes)
     CHECK(fresh->GetTotalDataSize() == 1024, "S0: fresh wrapper total size follows SetSize");
     GraphicFrame outFrame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     CHECK(fresh->GetFrame(outFrame) == 0, "S0: GetFrame on fresh wrapper");
@@ -295,7 +295,7 @@ void RunFreshWrapperChecks()
           "S0: synthesized chunk content");
     // Closed format domain (SetFrame rejection paths).
     GraphicFrame badFrame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-    badFrame.chunks[0] = MakeChunk(nullptr, 16);
+    badFrame.chunks[0] = MakeChunk(nullptr, 16); // 16: dummy segment size (bytes)
     badFrame.format = static_cast<GraphicFrameFormat>(GRAPHIC_FRAME_FORMAT_H264 + 1);
     CHECK(fresh->SetFrame(badFrame) == -1, "S0: out-of-domain format rejected");
     badFrame.format = GRAPHIC_FRAME_FORMAT_JPEG;
@@ -305,7 +305,7 @@ void RunFreshWrapperChecks()
     CHECK(fresh->SetFrame(badFrame) == -1, "S0: chunk count overflow rejected");
     // Valid JPEG frame round trip; a rejected write leaves the stored tag unchanged.
     GraphicFrame jpegFrame = { .format = GRAPHIC_FRAME_FORMAT_JPEG, .chunkCount = 1 };
-    jpegFrame.chunks[0] = MakeChunk(nullptr, 16);
+    jpegFrame.chunks[0] = MakeChunk(nullptr, 16); // 16: dummy segment size (bytes)
     CHECK(fresh->SetFrame(jpegFrame) == 0, "S0: JPEG frame round trip set");
     GraphicFrame outJpeg = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     CHECK(fresh->GetFrame(outJpeg) == 0 && outJpeg.format == GRAPHIC_FRAME_FORMAT_JPEG,
@@ -315,7 +315,7 @@ void RunFreshWrapperChecks()
           "S0: tag unchanged after rejection");
     // Clear the tag back to NONE (S1 re-points this wrapper to RGB memory).
     GraphicFrame noneFrame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-    noneFrame.chunks[0] = MakeChunk(nullptr, 16);
+    noneFrame.chunks[0] = MakeChunk(nullptr, 16); // 16: dummy segment size (bytes)
     CHECK(fresh->SetFrame(noneFrame) == 0, "S0: clear tag back to NONE");
     CHECK(fresh->GetFrame(outJpeg) == 0 && outJpeg.format == GRAPHIC_FRAME_FORMAT_NONE,
           "S0: tag cleared");
@@ -329,11 +329,11 @@ void RunFreshWrapperChecks()
 
 void RunRgbIdentity()
 {
-    AllocDriverMem(&g_hal.rgbSlot, 64 * 1024);
+    AllocDriverMem(&g_hal.rgbSlot, 64 * 1024); // 65536: wearable RGB frame size (bytes)
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     frame.chunkCount = 1;
     frame.chunks[0] = MakeChunk(g_hal.rgbSlot.mem, g_hal.rgbSlot.size);
-    frame.drvHandle = 0;
+    frame.drvHandle = 0; // 0: RGB slot handle
     frame.context = &g_hal.rgbSlot;
     CHECK(g_hal.rgbWrapper->SetFrame(frame) == 0, "S1: SetFrame single segment");
     g_hal.rgbWrapper->SetSize(static_cast<uint32_t>(g_hal.rgbSlot.size));
@@ -418,7 +418,7 @@ void RunRingCrossingInUse()
     frame.chunks[1].phyAddr = SimPhyAddr(frame.chunks[1].virAddr);
     frame.chunks[1].size = static_cast<uint32_t>(g_hal.ring2Mid);
     frame.chunks[1].stride = frame.chunks[1].size;
-    frame.drvHandle = 0;
+    frame.drvHandle = 0; // 0: ring2 slot handle
     frame.context = &g_hal.ring2Slot;
     CHECK(wrapper->SetFrame(frame) == 0, "S3: SetFrame ring-crossing H264");
     g_hal.ring2Wrapper = wrapper;
@@ -468,7 +468,7 @@ void RunReverseOrderProbe()
         SurfaceBuffer* deadProbe = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
         CHECK(deadProbe != nullptr, "S5a: dead probe wrapper");
         GraphicFrame df = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-        df.chunks[0] = MakeChunk(nullptr, 16);
+        df.chunks[0] = MakeChunk(nullptr, 16); // 16: dummy segment size (bytes)
         CHECK(deadProbe->SetFrame(df) == 0, "S5a: dead probe frame");
         CHECK(proxy->AttachBuffer(deadProbe, false) == SURFACE_ERROR_NOT_READY,
               "S5a: attach after consumer death rejected");
@@ -486,14 +486,14 @@ void RunDeathNotifyProbe()
     Surface* proxy = Surface::CreateSurfaceAsProducer(id);
     CHECK(proxy != nullptr, "S5b: spare proxy");
     proxy->RegisterProducerListener(g_producerListener);
-    AllocDriverMem(&g_hal.ring2Slot, 16 * 1024);
+    AllocDriverMem(&g_hal.ring2Slot, 16 * 1024); // 16384: S5b probe buffer size (bytes)
     g_hal.deathNotified = false;
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S5b: probe wrapper");
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 0 };
     frame.chunkCount = 1;
     frame.chunks[0] = MakeChunk(g_hal.ring2Slot.mem, g_hal.ring2Slot.size);
-    frame.drvHandle = 0;
+    frame.drvHandle = 0; // 0: probe slot handle
     frame.context = &g_hal.ring2Slot;
     CHECK(wrapper->SetFrame(frame) == 0, "S5b: probe SetFrame");
     wrapper->SetSize(static_cast<uint32_t>(g_hal.ring2Slot.size));
@@ -514,12 +514,12 @@ void RunInFlightNoListenerProbe()
     CHECK(proxy != nullptr, "S5c: spare proxy");
     // No producer listener registered: the queue destructor deletes the
     // in-flight wrapper itself and the release function returns the memory.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: S5c probe buffer size (bytes)
     SurfaceBuffer* wrapper = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(wrapper != nullptr, "S5c: probe wrapper");
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
     frame.chunks[0] = MakeChunk(g_hal.ring2Slot.mem, g_hal.ring2Slot.size);
-    frame.drvHandle = 0;
+    frame.drvHandle = 0; // 0: probe slot handle
     frame.context = &g_hal.ring2Slot;
     CHECK(wrapper->SetFrame(frame) == 0, "S5c: probe SetFrame");
     wrapper->SetSize(static_cast<uint32_t>(g_hal.ring2Slot.size));
@@ -534,7 +534,7 @@ void RunFlowControl()
 {
     Surface* consumer = Surface::CreateSurface();
     CHECK(consumer != nullptr, "S6: spare consumer");
-    consumer->SetQueueSize(2);
+    consumer->SetQueueSize(2); // 2: flow control triggers with the third attach
     Surface* proxy = Surface::CreateSurfaceAsProducer(consumer->GetSurfaceId());
     CHECK(proxy != nullptr, "S6: spare proxy");
     proxy->RegisterProducerListener(g_emptyListener);
@@ -543,7 +543,7 @@ void RunFlowControl()
         wrappers[i] = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
         CHECK(wrappers[i] != nullptr, "S6: wrapper");
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-        frame.chunks[0] = MakeChunk(nullptr, 1024);
+        frame.chunks[0] = MakeChunk(nullptr, 1024); // 1024: dummy frame size (bytes)
         CHECK(wrappers[i]->SetFrame(frame) == 0, "S6: SetFrame");
         wrappers[i]->SetSize(1024);
     }
@@ -708,7 +708,7 @@ void* ConcurrentDeathProducer(void*)
     // Producer thread for the mid-traffic consumer-death scenario: the abort
     // flag is only read inside the handshake, so a dead wrapper pointer is
     // never touched again after the consumer died.
-    const int total = 8;
+    const int total = 8; // 8: frames the death producer wants to produce (death expected at frame 5)
     for (int frameNo = 0; frameNo < total; frameNo++) {
         if (g_deathCtx.abort) {
             break;
@@ -767,7 +767,7 @@ void RunConcurrentConsumerDeath()
     }
     pthread_t producer;
     pthread_create(&producer, nullptr, ConcurrentDeathProducer, nullptr);
-    const int consumedBeforeDeath = 4;
+    const int consumedBeforeDeath = 4; // 4: frames consumed before the teardown
     int consumed = ConsumeReleasedFrames(g_deathCtx.consumer, consumedBeforeDeath);
     // Take the next frame's available signal but do NOT consume the frame:
     // frame 4 is queued (FLUSH) and the producer thread is blocked on the
@@ -807,7 +807,7 @@ void* ConcurrentStopProducer(void*)
 {
     // Stream stop from the producer side mid-traffic: attach frames 0..3 and
     // exit without waiting for frame 3 to be consumed (it stays queued).
-    const int producedFrames = 4;
+    const int producedFrames = 4; // 4: frames produced before the producer thread exits
     for (int frameNo = 0; frameNo < producedFrames; frameNo++) {
         int slot = frameNo % RING_NUM;
         GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NV12, .chunkCount = 2 };
@@ -848,7 +848,7 @@ void RunConcurrentProducerStop()
     }
     pthread_t producer;
     pthread_create(&producer, nullptr, ConcurrentStopProducer, nullptr);
-    int consumed = ConsumeReleasedFrames(consumer, 3);
+    int consumed = ConsumeReleasedFrames(consumer, 3); // 3: frames consumed before the producer exits
     // The producer exits right after attaching the last frame: the queued
     // frame must still be consumable after its thread is gone.
     pthread_join(producer, nullptr);
@@ -889,13 +889,13 @@ void OneWayRejectionProbes(Surface* proxy, const GraphicFrame& frame)
 
     // Reusable attach without a listener (separate surface), with real
     // credentials: the self-destroy after the failed attach returns memory.
-    AllocDriverMem(&g_hal.ring2Slot, 4 * 1024);
+    AllocDriverMem(&g_hal.ring2Slot, 4 * 1024); // 4096: real-credentials probe buffer size (bytes)
     Surface* bareConsumer = Surface::CreateSurface();
     Surface* bareProxy = Surface::CreateSurfaceAsProducer(bareConsumer->GetSurfaceId());
     SurfaceBuffer* bare = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(bare != nullptr, "S10: bare wrapper");
     GraphicFrame realFrame = frame;
-    realFrame.drvHandle = 3;
+    realFrame.drvHandle = 3; // 3: probe slot handle
     realFrame.context = &g_hal.ring2Slot;
     CHECK(bare->SetFrame(realFrame) == 0, "S10: frame on bare wrapper");
     CHECK(bareProxy->AttachBuffer(bare, true) == SURFACE_ERROR_NOT_READY,
@@ -910,16 +910,16 @@ void OneWayDisposeFlow(Surface* consumer, Surface* proxy, OneWayListener& listen
 {
     // One-way attach, consume, release — the queue disposes after the
     // observational callback.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: one-way probe buffer size (bytes)
     SurfaceBuffer* w1 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w1 != nullptr, "S10: one-way wrapper");
     GraphicFrame f1 = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
     f1.chunks[0] = MakeChunk(g_hal.ring2Slot.mem, g_hal.ring2Slot.size);
-    f1.drvHandle = 1;
+    f1.drvHandle = 1; // 1: one-way probe slot handle
     f1.context = &g_hal.ring2Slot;
     CHECK(w1->SetFrame(f1) == 0, "S10: one-way SetFrame");
     w1->SetSize(static_cast<uint32_t>(g_hal.ring2Slot.size));
-    CHECK(w1->SetInt32(DRIVER_BUF_ID_KEY, 42) == 0, "S10: stamp frame id");
+    CHECK(w1->SetInt32(DRIVER_BUF_ID_KEY, 42) == 0, "S10: stamp frame id"); // 42: stamped test frame id
     CHECK(proxy->AttachBuffer(w1, false) == SURFACE_ERROR_OK, "S10: one-way attach");
     SurfaceBuffer* buf = consumer->AcquireBuffer();
     CHECK(buf != nullptr, "S10: acquire one-way frame");
@@ -932,12 +932,12 @@ void OneWayDisposeFlow(Surface* consumer, Surface* proxy, OneWayListener& listen
 void OneWayUnconsumedFlow(Surface* consumer, Surface* proxy, OneWayListener& listener)
 {
     // A one-way frame left in the queue at consumer destruction.
-    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024);
+    AllocDriverMem(&g_hal.ring2Slot, 8 * 1024); // 8192: unconsumed probe buffer size (bytes)
     SurfaceBuffer* w2 = SurfaceBuffer::CreateSurfaceBuffer(DriverSlotRelease);
     CHECK(w2 != nullptr, "S10: unconsumed wrapper");
     GraphicFrame f2 = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
     f2.chunks[0] = MakeChunk(g_hal.ring2Slot.mem, g_hal.ring2Slot.size);
-    f2.drvHandle = 2;
+    f2.drvHandle = 2; // 2: unconsumed probe slot handle
     f2.context = &g_hal.ring2Slot;
     CHECK(w2->SetFrame(f2) == 0, "S10: second SetFrame");
     w2->SetSize(static_cast<uint32_t>(g_hal.ring2Slot.size));
@@ -953,13 +953,13 @@ void RunOneWayScenario()
     OneWayListener listener;
     Surface* consumer = Surface::CreateSurface();
     CHECK(consumer != nullptr, "S10: spare consumer");
-    consumer->SetQueueSize(2);
+    consumer->SetQueueSize(2); // 2: allows one attach plus one rejection probe
     uint64_t id = consumer->GetSurfaceId();
     Surface* proxy = Surface::CreateSurfaceAsProducer(id);
     CHECK(proxy != nullptr, "S10: spare proxy");
     proxy->RegisterProducerListener(listener);
     GraphicFrame frame = { .format = GRAPHIC_FRAME_FORMAT_NONE, .chunkCount = 1 };
-    frame.chunks[0] = MakeChunk(nullptr, 16);
+    frame.chunks[0] = MakeChunk(nullptr, 16); // 16: dummy segment size (bytes)
     OneWayRejectionProbes(proxy, frame);
     OneWayDisposeFlow(consumer, proxy, listener);
     OneWayUnconsumedFlow(consumer, proxy, listener);
