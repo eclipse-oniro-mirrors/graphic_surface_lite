@@ -187,6 +187,36 @@ public:
      * @returns value refers to the key.
      */
     virtual std::string GetUserData(const std::string& key) = 0;
+
+    /**
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     *        Default implementation for producers that do not support external
+     *        buffers (for example the cross-process BufferClientProducer).
+     * @param [in] buffer, external buffer wrapper to attach.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
+     * @returns -1 (not supported) by default.
+     */
+    virtual int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
+    {
+        (void)buffer;
+        (void)isReusable;
+        return -1;
+    }
+
+    /**
+     * @brief Register the producer listener invoked when a buffer becomes idle.
+     *        Default no-op for producers without a local buffer queue.
+     * @param [in] listener, producer listener.
+     */
+    virtual void RegisterProducerListener(IProducerListener& listener)
+    {
+        (void)listener;
+    }
+
+    /**
+     * @brief Unregister the producer listener. Default no-op.
+     */
+    virtual void UnregisterProducerListener() {}
 };
 } // namespace OHOS
 #endif

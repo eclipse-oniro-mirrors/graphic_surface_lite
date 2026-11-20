@@ -15,6 +15,7 @@
 
 #include "surface.h"
 #include "surface_impl.h"
+#include "surface_utils.h"
 
 namespace OHOS {
 Surface* Surface::CreateSurface()
@@ -30,6 +31,21 @@ Surface* Surface::CreateSurface()
     }
     GRAPHIC_LOGE("Create surface failed");
     return nullptr;
+}
+
+Surface* Surface::CreateSurfaceAsProducer(uint64_t surfaceId)
+{
+#ifdef SURFACE_LITE_SINGLE_PROCESS
+    // H routing: the proxy holds only the id; all calls go through the registry.
+    return SurfaceUtils::CreateSurfaceProxy(surfaceId);
+#else
+    // Cross process: use the existing path instead — GetSurface(id) plus
+    // WriteIoIpcIo on the consumer side, GenericSurfaceByIpcIo on the producer side.
+    (void)surfaceId;
+    GRAPHIC_LOGE("CreateSurfaceAsProducer is unsupported in cross process mode, "
+                 "use GetSurface(id) and the existing WriteIoIpcIo/GenericSurfaceByIpcIo path instead.");
+    return nullptr;
+#endif
 }
 
 Surface::~Surface()

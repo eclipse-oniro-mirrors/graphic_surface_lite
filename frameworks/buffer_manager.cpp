@@ -276,6 +276,7 @@ int32_t BufferManager::FlushCache(SurfaceBufferImpl& buffer) const
         if ((grallocFucs_->FlushMCache == nullptr) || (grallocFucs_->FlushMCache(bufferHandle) != DISPLAY_SUCCESS)) {
             GRAPHIC_LOGE("Flush M cache buffer failed.");
         }
+    } else {
     }
     free(bufferHandle);
     return SURFACE_ERROR_OK;

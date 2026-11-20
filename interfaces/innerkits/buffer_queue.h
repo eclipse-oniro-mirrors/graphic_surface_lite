@@ -18,6 +18,9 @@
 
 #include <list>
 #include <map>
+#include <string>
+#include "ibuffer_consumer_listener.h"
+#include "iproducer_listener.h"
 #include "surface_buffer_impl.h"
 
 namespace OHOS {
@@ -196,6 +199,59 @@ public:
      */
     bool Init();
 
+    /**
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     *        The buffer enters the bypass attachList_ and dirtyList_ directly and never
+     *        enters allBuffers_/freeList_ (the framework allocation/free path is not
+     *        applicable to driver-owned memory).
+     * @param [in] buffer, external buffer wrapper to attach.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
+     * @returns 0 if succeed; error code otherwise (rejected when queued, acquired,
+     *          full, or when the mode prerequisites are not met).
+     */
+    int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable);
+
+    /**
+     * @brief Check whether the queue is full (no free slot for another AttachBuffer).
+     *        Full means attachList_ already holds queueSize_ external wrappers.
+     * @returns true if full; false if at least one slot is free.
+     */
+    bool IsQueueFull();
+
+    /**
+     * @brief Mirror the producer listener on the queue (single source of callbacks).
+     * @param [in] listener, the producer listener; nullptr unregisters.
+     */
+    void RegisterProducerListener(IProducerListener* listener);
+
+    /**
+     * @brief Unregister producer listener.
+     */
+    void UnregisterProducerListener();
+
+    /**
+     * @brief Get the producer listener currently registered on the queue.
+     * @returns the listener pointer; nullptr if none is registered.
+     */
+    IProducerListener* GetProducerListener();
+
+    /**
+     * @brief Mirror the consumer listener on the queue (single source of callbacks).
+     * @param [in] listener, the consumer listener; nullptr unregisters.
+     */
+    void RegisterConsumerListener(IBufferConsumerListener* listener);
+
+    /**
+     * @brief Unregister consumer listener.
+     */
+    void UnregisterConsumerListener();
+
+    /**
+     * @brief Get the consumer listener currently registered on the queue.
+     * @returns the listener pointer; nullptr if none is registered.
+     */
+    IBufferConsumerListener* GetConsumerListener();
+
 private:
     bool CanRequest(uint8_t wait);
     int32_t isValidAttr(uint32_t width, uint32_t height, uint32_t format, uint32_t strideAlignment);
@@ -204,6 +260,13 @@ private:
     void Detach(SurfaceBufferImpl* buffer);
     SurfaceBufferImpl* GetBuffer(const SurfaceBufferImpl& buffer);
     int32_t ReleaseBuffer(const SurfaceBufferImpl& buffer, BufferState state);
+    SurfaceBufferImpl* GetAttachedBuffer(const SurfaceBufferImpl& buffer);
+    /** Attach checkpoints (static configuration errors first); lock_ held. */
+    int32_t ValidateAttachLocked(SurfaceBufferImpl* buffer, bool isReusable);
+    /** Framework-allocated buffer release path; lock_ held. */
+    int32_t ReleaseFrameworkLocked(SurfaceBufferImpl* tmpBuffer, BufferState state);
+    /** Free framework-managed buffers; lock_ held. */
+    void FreeFrameworkBuffersLocked();
     uint32_t width_;
     uint32_t height_;
     uint32_t format_;
@@ -220,6 +283,9 @@ private:
     pthread_mutex_t lock_;
     pthread_cond_t freeCond_;
     std::map<std::string, std::string> usrDataMap_;
+    std::list<SurfaceBufferImpl *> attachList_;
+    IProducerListener* producerListener_ = nullptr;
+    IBufferConsumerListener* consumerListener_ = nullptr;
 };
 } // end namespace
 #endif

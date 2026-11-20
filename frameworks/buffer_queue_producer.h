@@ -193,12 +193,41 @@ public:
     void UnregisterConsumerListener();
 
     /**
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     *        Delegates to the buffer queue bypass path.
+     * @param [in] buffer, external buffer wrapper to attach.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
+     * @returns 0 if succeed; error code otherwise.
+     */
+    int32_t AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable) override;
+
+    /**
+     * @brief Check whether the buffer queue is full (no free slot for another
+     *        AttachBuffer). Delegates to the buffer queue.
+     * @returns true if full; false if at least one slot is free.
+     */
+    bool IsQueueFull();
+
+    /**
+     * @brief Register producer listener, mirrored on the buffer queue.
+     * @param [in], IProducerListener listener.
+     */
+    void RegisterProducerListener(IProducerListener& listener) override;
+
+    /**
+     * @brief Unregister producer listener, mirrored on the buffer queue.
+     */
+    void UnregisterProducerListener() override;
+
+#ifndef SURFACE_LITE_SINGLE_PROCESS
+    /**
      * @brief Deal with the ipc msg from BufferClientProducer.
      * @param [in] ipcMsg, ipc msg, contains request code...
      * @param [in] IpcIo pointer, ipc msg object, contains request attr...
      * @returns 0 is succeed; other is failed.
      */
     int32_t OnIpcMsg(uint32_t code, IpcIo *data, IpcIo *reply, MessageOption option);
+#endif
 private:
     BufferQueue* bufferQueue_;
     IBufferConsumerListener* consumerListener_;

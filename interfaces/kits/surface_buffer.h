@@ -31,8 +31,6 @@
  *
  * @brief Provides functions such as setting the virtual address, size, and additional attributes of shared memory.
  *
- *
- *
  * @since 1.0
  * @version 1.0
  */
@@ -41,6 +39,8 @@
 #define GRAPHIC_LITE_SURFACE_BUFFER_H
 
 #include <map>
+#include "gfx_utils/graphic_frame.h"
+#include "surface_type.h"
 
 namespace OHOS {
 /**
@@ -53,6 +53,94 @@ namespace OHOS {
  */
 class SurfaceBuffer {
 public:
+    /**
+     * @brief Creates a buffer wrapper for externally allocated (driver-owned) memory.
+     *
+     * The memory is externally owned; the framework never allocates or frees it.
+     *
+     * @param release Invoked when the wrapper is destroyed — by DestroySurfaceBuffer,
+     *                by the queue on a one-way release, or at queue destruction —
+     *                to return the described memory to its owner; receives the frame
+     *                including drvHandle and context. May be <b>nullptr</b> when the
+     *                caller manages the memory manually, in which case the wrapper
+     *                can only be attached with isReusable = true.
+     * @return Returns the pointer to the buffer wrapper; returns <b>nullptr</b> on failure.
+     * @release Surface/DestroySurfaceBuffer {return}
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    static SurfaceBuffer* CreateSurfaceBuffer(GraphicFrameDataReleaseFunc release);
+
+    /**
+     * @brief Destroys a buffer wrapper created by CreateSurfaceBuffer.
+     *
+     * Allowed only when the wrapper is not owned by a queue (never attached, or
+     * already released). Calling it on a queue-owned buffer returns
+     * SURFACE_ERROR_BUFFER_IN_USE without any
+     * effect. Destruction returns the described memory through the release
+     * function registered at CreateSurfaceBuffer. After a successful call the
+     * pointer is invalid; calling it again on the same pointer is undefined behavior.
+     *
+     * @param buffer Indicates the buffer wrapper to destroy.
+     * @return Returns <b>0</b> if the operation is successful; returns an error
+     *         code otherwise.
+     * @see CreateSurfaceBuffer
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    static int32_t DestroySurfaceBuffer(SurfaceBuffer* buffer);
+
+    /**
+     * @brief Sets the complete frame description in one call.
+     *
+     * Sets the format, dimensions and memory segments of the frame.
+     * Must be called before Surface::AttachBuffer (attaching a wrapper without
+     * a frame is rejected). drvHandle and context identify the buffer to its
+     * owner and are passed back to the release function when the wrapper is
+     * destroyed.
+     *
+     * @param frame Indicates the complete frame description.
+     * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b>
+     *         if the chunk count or format is invalid.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual int32_t SetFrame(const GraphicFrame& frame)
+    {
+        (void)frame;
+        return -1;
+    }
+
+    /**
+     * @brief Gets the complete frame description in one call.
+     *
+     * Gets the format, dimensions and memory segments of the frame.
+     *
+     * @param frame Indicates the frame description to fill.
+     * @return Returns <b>0</b> if the operation is successful; returns <b>-1</b> otherwise.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual int32_t GetFrame(GraphicFrame& frame) const
+    {
+        (void)frame;
+        return -1;
+    }
+
+    /**
+     * @brief Obtains the total data size of all segments of the buffer.
+     *
+     * For buffers whose segments have never been set, the legacy GetSize value is returned.
+     *
+     * @return Returns the total data size in bytes.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual uint32_t GetTotalDataSize() const
+    {
+        return 0;
+    }
+
     /**
      * @brief Obtains the virtual address of shared memory for producers and consumers.
      *

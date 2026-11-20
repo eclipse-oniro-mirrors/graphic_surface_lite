@@ -2,7 +2,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -11,6 +13,41 @@
 
 import("//build/lite/config/component/lite_component.gni")
 import("//build/lite/ndk/ndk.gni")
+
+# Common configuration of the "surface" target, shared by both kernel forms.
+# Pure IPC and pure Gralloc translation units are compiled out of single
+# process builds (their contents are unreachable by design): liteos_m is
+# inherently single-process (no MMU, no IPC infrastructure).
+surface_sources = [
+  "frameworks/buffer_queue.cpp",
+  "frameworks/buffer_queue_consumer.cpp",
+  "frameworks/buffer_queue_producer.cpp",
+  "frameworks/surface.cpp",
+  "frameworks/surface_buffer_impl.cpp",
+  "frameworks/surface_buffer_impl_ex.cpp",
+  "frameworks/surface_impl.cpp",
+  "frameworks/surface_proxy_impl.cpp",
+  "frameworks/surface_utils.cpp",
+]
+surface_defines = []
+surface_extra_deps = []
+if (ohos_kernel_type == "liteos_m") {
+  surface_defines = [ "SURFACE_LITE_SINGLE_PROCESS=1" ]
+} else {
+  surface_sources += [
+    "frameworks/buffer_client_producer.cpp",
+    "frameworks/buffer_manager.cpp",
+  ]
+  surface_extra_deps = [
+    "//drivers/peripheral/display/hal:hdi_display",
+    "//foundation/communication/ipc/interfaces/innerkits/c/ipc:ipc_single",
+  ]
+}
+surface_include_dirs = [
+  "frameworks",
+  "//drivers/peripheral/base",
+  "//drivers/peripheral/display/interfaces/include",
+]
 
 lite_component("surface_lite") {
   features = [ ":surface" ]
@@ -23,37 +60,39 @@ ndk_lib("surface_lite_ndk") {
   head_files = [ "interfaces/kits" ]
 }
 
-shared_library("surface") {
-  sources = [
-    "frameworks/buffer_client_producer.cpp",
-    "frameworks/buffer_manager.cpp",
-    "frameworks/buffer_queue.cpp",
-    "frameworks/buffer_queue_consumer.cpp",
-    "frameworks/buffer_queue_producer.cpp",
-    "frameworks/surface.cpp",
-    "frameworks/surface_buffer_impl.cpp",
-    "frameworks/surface_impl.cpp",
-  ]
-  include_dirs = [
-    "frameworks",
-    "//drivers/peripheral/base",
-    "//drivers/peripheral/display/interfaces/include",
-  ]
-  public_configs = [ ":surface_public_config" ]
-  public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
-  deps = [
-    "//drivers/peripheral/display/hal:hdi_display",
-    "//foundation/communication/ipc/interfaces/innerkits/c/ipc:ipc_single",
-    "//third_party/bounds_checking_function:libsec_shared",
-  ]
-  ldflags = [
-    "-ldisplay_gfx",
-    "-ldisplay_gralloc",
-    "-ldisplay_layer",
-  ]
-  cflags = [ "-fPIC" ]
-  cflags += [ "-Wall" ]
-  cflags_cc = cflags
+# liteos_m (mini, bare-metal RTOS) has no dynamic linker: the target is a
+# static library there and libsec links statically. Other kernels keep the
+# original shared_library form (baseline identical). The branches below
+# contain only these differences.
+if (ohos_kernel_type == "liteos_m") {
+  static_library("surface") {
+    sources = surface_sources
+    defines = surface_defines
+    include_dirs = surface_include_dirs
+    public_configs = [ ":surface_public_config" ]
+    public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
+    deps = [ "//third_party/bounds_checking_function:libsec_static" ] + surface_extra_deps
+    cflags = [ "-fPIC" ]
+    cflags += [ "-Wall" ]
+    cflags_cc = cflags
+  }
+} else {
+  shared_library("surface") {
+    sources = surface_sources
+    defines = surface_defines
+    include_dirs = surface_include_dirs
+    public_configs = [ ":surface_public_config" ]
+    public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
+    deps = [ "//third_party/bounds_checking_function:libsec_shared" ] + surface_extra_deps
+    ldflags = [
+      "-ldisplay_gfx",
+      "-ldisplay_gralloc",
+      "-ldisplay_layer",
+    ]
+    cflags = [ "-fPIC" ]
+    cflags += [ "-Wall" ]
+    cflags_cc = cflags
+  }
 }
 
 config("surface_public_config") {

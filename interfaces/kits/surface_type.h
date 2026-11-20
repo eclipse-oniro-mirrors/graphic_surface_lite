@@ -68,5 +68,22 @@ enum BufferConsumerUsage {
      *  range. */
     BUFFER_CONSUMER_USAGE_MAX
 };
+
+/**
+ * @brief Standard extra data keys for SurfaceBuffer::SetInt32/GetInt32.
+ *
+ * Framework-defined keys start from 1; HAL-private keys start from
+ * SURFACE_BUFFER_KEY_USER_BASE (1000). Values are int32; the unit/meaning
+ * of each key is by convention between producer and consumer.
+ *
+ * @since 26.1.0
+ * @version 26.1.0
+ */
+enum SurfaceBufferKey {
+    /** Rotation angle in degrees (int32, e.g. 0/90/180/270). */
+    SURFACE_BUFFER_KEY_ROTATION_DEGREE = 1,
+    /** HAL-private keys start here. */
+    SURFACE_BUFFER_KEY_USER_BASE = 1000
+};
 } // end namespace OHOS
 #endif

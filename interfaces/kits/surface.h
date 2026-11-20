@@ -38,7 +38,9 @@
 #ifndef GRAPHIC_LITE_SURFACE_H
 #define GRAPHIC_LITE_SURFACE_H
 
+#include <string>
 #include "ibuffer_consumer_listener.h"
+#include "iproducer_listener.h"
 #include "surface_buffer.h"
 #include "surface_type.h"
 
@@ -62,6 +64,25 @@ public:
      * @version 1.0
      */
     static Surface* CreateSurface();
+
+    /**
+     * @brief Creates a {@link Surface} object for producers, addressed by the global surface id.
+     *
+     * In single-process mode, the local registry is looked up and a producer proxy sharing
+     * the same buffer queue as the consumer surface is returned. \n
+     * In cross-process mode this returns <b>nullptr</b> (producers follow
+     * the existing cross-process path). \n
+     * The caller owns the returned proxy and deletes it when done; deleting the proxy
+     * does not delete the shared buffer queue (the consumer surface owns it).
+     *
+     * @param surfaceId Indicates the global surface id returned by GetSurfaceId of the
+     *                  consumer surface.
+     * @return Returns the pointer to the producer {@link Surface}; returns <b>nullptr</b>
+     *         if the id does not exist or in cross-process mode.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    static Surface* CreateSurfaceAsProducer(uint64_t surfaceId);
 
     /**
      * @brief A destructor used to delete the <b>Surface</b> instance.
@@ -312,6 +333,99 @@ public:
      * @version 1.0
      */
     virtual void UnregisterConsumerListener() = 0;
+
+    /**
+     * @brief Obtains the global unique id of this surface.
+     *
+     * The id is allocated automatically when the consumer surface is created
+     * and unregistered when it is destroyed.
+     *
+     * @return Returns the global surface id; returns <b>0</b> if unavailable.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual uint64_t GetSurfaceId() const
+    {
+        return 0;
+    }
+
+    /**
+     * @brief Attaches an externally allocated (driver-owned) buffer to the surface.
+     *
+     * @param buffer Indicates the buffer wrapper created by
+     *               SurfaceBuffer::CreateSurfaceBuffer.
+     * @param isReusable Indicates whether the wrapper is returned on release.
+     *        - <b>true</b>: release hands the wrapper back to the producer through
+     *          OnBufferReleased; the producer re-attaches it or destroys it by
+     *          DestroySurfaceBuffer. The data memory is returned when the wrapper
+     *          is destroyed — through the CreateSurfaceBuffer release function, or
+     *          by the producer when none was registered. Requires
+     *          RegisterProducerListener called beforehand.
+     *        - <b>false</b>: one-way. The queue destroys the wrapper after
+     *          OnBufferReleased returns (or at consumer destruction if never
+     *          consumed) and the data memory returns through the release function,
+     *          which is therefore required. Do not use the pointer after release.
+     *          The callback, if any, is the last chance to read the wrapper.
+     *
+     * @return Returns <b>0</b> if the operation is successful; returns an error code otherwise:
+     *         - <b>SURFACE_ERROR_INVALID_PARAM</b>: null buffer, or a framework-allocated buffer;
+     *         - <b>SURFACE_ERROR_NOT_READY</b>: consumer destroyed, or true without a registered listener;
+     *         - <b>SURFACE_ERROR_INVALID_REQUEST</b>: without release func,
+     *           no frame, double attach, or queue full;
+     *         - <b>SURFACE_ERROR_BUFFER_IN_USE</b>: buffer held by the consumer.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual int32_t AttachBuffer(SurfaceBuffer* buffer, bool isReusable)
+    {
+        (void)buffer;
+        (void)isReusable;
+        return -1;
+    }
+
+    /**
+     * @brief Checks whether the buffer queue is full (no free slot for another
+     *        AttachBuffer). Check this before attaching to avoid a rejected attach.
+     * @return Returns <b>true</b> if the queue is full; <b>false</b> if a slot is free.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual bool IsQueueFull() const
+    {
+        return true;
+    }
+
+    /**
+     * @brief Registers the producer listener invoked when a buffer becomes idle.
+     *
+     * If the listener is repeatedly registered, only the latest one is retained.
+     * Required before an isReusable = true attach — OnBufferReleased is the only
+     * channel through which a released wrapper returns. OnConsumerSurfaceDestroyed
+     * fires for registered listeners regardless of the attach mode. The listener
+     * must remain valid until unregistered (the queue may still invoke it while
+     * wrappers are in flight).
+     *
+     * @param listener Indicates the listener to register.
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual void RegisterProducerListener(IProducerListener& listener)
+    {
+        (void)listener;
+    }
+
+    /**
+     * @brief Unregisters the producer listener.
+     *
+     * Safe only after no wrappers are in flight: retire each one in
+     * OnBufferReleased first, or wait for OnConsumerSurfaceDestroyed (the
+     * queue never calls the listener after it returns). Destroying a listener
+     * that is still registered is undefined behavior.
+     *
+     * @since 26.1.0
+     * @version 26.1.0
+     */
+    virtual void UnregisterProducerListener() {}
 
 protected:
     Surface() {}

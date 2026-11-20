@@ -19,7 +19,9 @@
 #include <map>
 #include <pthread.h>
 #include "buffer_common.h"
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 #include "ipc_skeleton.h"
+#endif
 #include "surface_buffer.h"
 
 namespace OHOS {
@@ -339,6 +341,7 @@ public:
      * @brief Get buffer attr from ipc object.
      * @param [in] IpcIo pointer.
      */
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     void ReadFromIpcIo(IpcIo& io);
 
     /**
@@ -346,6 +349,7 @@ public:
      * @param [in] IpcIo object.
      */
     void WriteToIpcIo(IpcIo& io);
+#endif
 
     /**
      * @brief Copy buffer extra data from input buffer to self
@@ -357,6 +361,92 @@ public:
      * @brief Clear buffer extra data.
      */
     void ClearExtraData();
+
+    /**
+     * @brief Set the complete frame. Framework-managed buffers do not allow
+     *        chunk writing; only the format is stored.
+     * @param [in] frame, the frame description to set (see gfx_utils/graphic_frame.h).
+     * @returns 0 if the format is valid; -1 otherwise.
+     */
+    int32_t SetFrame(const GraphicFrame& frame) override
+    {
+        if (frame.format > GRAPHIC_FRAME_FORMAT_H264) {
+            GRAPHIC_LOGD("Invalid frame format %u.", static_cast<uint32_t>(frame.format));
+            return -1;
+        }
+        bufferFormat_ = frame.format;
+        return 0;
+    }
+
+    /**
+     * @brief Get the complete frame: synthesizes a single-chunk legacy view.
+     * @param [out] frame, the frame description filled (see gfx_utils/graphic_frame.h).
+     * @returns 0 if succeed; -1 otherwise.
+     */
+    int32_t GetFrame(GraphicFrame& frame) const override
+    {
+        frame.format = bufferFormat_;
+        frame.width = 0;
+        frame.height = 0;
+        frame.chunkCount = 1;
+        frame.chunks[0].virAddr = bufferData_.virAddr;
+        frame.chunks[0].phyAddr = bufferData_.handle.phyAddr;
+        frame.chunks[0].size = GetSize();
+        frame.chunks[0].stride = static_cast<uint32_t>(bufferData_.handle.stride);
+        return 0;
+    }
+
+    /**
+     * @brief Get the total data size. Equals GetSize() for framework-managed buffers.
+     * @returns total data size in bytes.
+     */
+    uint32_t GetTotalDataSize() const override;
+
+    /** @brief Whether a release function was registered at creation. */
+    bool HasReleaseFunc() const
+    {
+        return releaseFunc_ != nullptr;
+    }
+
+    /** @brief Whether the wrapper is returned to the producer on release. */
+    bool IsReusable() const
+    {
+        return reusable_;
+    }
+
+    /** @brief Stamp the attach mode (called by the queue at AttachBuffer). */
+    void SetReusable(bool reusable)
+    {
+        reusable_ = reusable;
+    }
+
+    /**
+     * @brief Whether a frame description was set (SetFrame) by the producer.
+     *        Framework-managed buffers always have the legacy view.
+     */
+    virtual bool HasFrame() const
+    {
+        return true;
+    }
+
+protected:
+    /**
+     * @brief Set data length bypassing the capacity check.
+     *        For externally managed buffers whose capacity is owned by the HAL/driver
+     *        (bufferData_.size is always 0), used by SurfaceBufferImplEx::SetSize.
+     */
+    void SetSizeUnchecked(uint32_t size)
+    {
+        len_ = size;
+    }
+
+    /**
+     * @brief Release function registered at CreateSurfaceBuffer; fired by the
+     *        externally managed wrapper destructor to return the data memory.
+     */
+    GraphicFrameDataReleaseFunc releaseFunc_ = nullptr;
+    /** Attach mode stamp: whether the wrapper is returned to the producer on release. */
+    bool reusable_ = false;
 
 private:
     /**
@@ -371,6 +461,8 @@ private:
     struct SurfaceBufferData bufferData_;
     std::map<uint32_t, ExtraData> extDatas_;
     uint32_t len_;
+protected:
+    enum GraphicFrameFormat bufferFormat_ = GRAPHIC_FRAME_FORMAT_NONE;
 };
 } // end namespace
 #endif

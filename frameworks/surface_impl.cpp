@@ -14,30 +14,41 @@
  */
 #include "surface_impl.h"
 #include <unistd.h>
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 #include "buffer_client_producer.h"
-#include "buffer_common.h"
 #include "buffer_manager.h"
+#endif
+#include "buffer_common.h"
 #include "buffer_queue_consumer.h"
 #include "buffer_queue_producer.h"
 #include "surface_buffer_impl.h"
+#include "surface_utils.h"
 
 namespace OHOS {
 SurfaceImpl::SurfaceImpl()
     : consumer_(nullptr), producer_(nullptr), IsConsumer_(true)
 {
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     sid_ = {
         .handle = 0,
         .token = 0
     };
+#endif
+    surfaceId_ = SurfaceUtils::GetInstance()->Register(this);
 }
 
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 SurfaceImpl::SurfaceImpl(const SvcIdentity& sid)
     : sid_(sid), consumer_(nullptr), producer_(nullptr), IsConsumer_(false)
 {
 }
+#endif
 
 SurfaceImpl::~SurfaceImpl()
 {
+    if (surfaceId_ != 0) {
+        SurfaceUtils::GetInstance()->Unregister(surfaceId_);
+    }
     if (consumer_ != nullptr) {
         delete consumer_;
         consumer_ = nullptr;
@@ -46,56 +57,72 @@ SurfaceImpl::~SurfaceImpl()
         delete producer_;
         producer_ = nullptr;
     }
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     if (sid_.handle != 0) {
         ReleaseSvc(sid_);
     }
+#endif
+}
+
+bool SurfaceImpl::InitConsumer()
+{
+    BufferQueue* bufferQueue = new BufferQueue();
+    if (bufferQueue == nullptr) {
+        GRAPHIC_LOGE("Surface consumer(buffer queue) init failed.");
+        return false;
+    }
+    if (!bufferQueue->Init()) {
+        GRAPHIC_LOGE("Buffer queue init failed.");
+        delete bufferQueue;
+        return false;
+    }
+    producer_ = new BufferQueueProducer(bufferQueue);
+    if (producer_ == nullptr) {
+        GRAPHIC_LOGE("Surface consumer(producer) init failed.");
+        delete bufferQueue;
+        return false;
+    }
+    consumer_ = new BufferQueueConsumer(*bufferQueue);
+    if (consumer_ == nullptr) {
+        GRAPHIC_LOGE("Surface consumer(consumer) init failed.");
+        delete producer_;
+        producer_ = nullptr;
+        return false;
+    }
+#ifndef SURFACE_LITE_SINGLE_PROCESS
+    objectStub_.func = IpcRequestHandler;
+    objectStub_.args = reinterpret_cast<void*>(producer_);
+    objectStub_.isRemote = false;
+    sid_.handle = IPC_INVALID_HANDLE;
+    sid_.token  = SERVICE_TYPE_ANONYMOUS;
+    sid_.cookie = reinterpret_cast<uintptr_t>(&objectStub_);
+#endif
+    return true;
 }
 
 bool SurfaceImpl::Init()
 {
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     if (!BufferManager::GetInstance()->Init()) {
         GRAPHIC_LOGE("Failed init buffer manager");
         return false;
     }
+#endif
     if (IsConsumer_) {
-        BufferQueue* bufferQueue = new BufferQueue();
-        if (bufferQueue == nullptr) {
-            GRAPHIC_LOGE("Surface consumer(buffer queue) init failed.");
-            return false;
-        }
-
-        if (!bufferQueue->Init()) {
-            GRAPHIC_LOGE("Buffer queue init failed.");
-            delete bufferQueue;
-            return false;
-        }
-
-        producer_ = new BufferQueueProducer(bufferQueue);
-        if (producer_ == nullptr) {
-            GRAPHIC_LOGE("Surface consumer(producer) init failed.");
-            delete bufferQueue;
-            return false;
-        }
-        consumer_ = new BufferQueueConsumer(*bufferQueue);
-        if (consumer_ == nullptr) {
-            GRAPHIC_LOGE("Surface consumer(consumer) init failed.");
-            delete producer_;
-            producer_ = nullptr;
-            return false;
-        }
-        objectStub_.func = IpcRequestHandler;
-        objectStub_.args = reinterpret_cast<void*>(producer_);
-        objectStub_.isRemote = false;
-        sid_.handle = IPC_INVALID_HANDLE;
-        sid_.token  = SERVICE_TYPE_ANONYMOUS;
-        sid_.cookie = reinterpret_cast<uintptr_t>(&objectStub_);
-    } else {
-        producer_ = new BufferClientProducer(sid_);
-        if (producer_ == nullptr) {
-            GRAPHIC_LOGE("Surface producer init failed.");
-            return false;
-        }
+        return InitConsumer();
     }
+#ifndef SURFACE_LITE_SINGLE_PROCESS
+    producer_ = new BufferClientProducer(sid_);
+    if (producer_ == nullptr) {
+        GRAPHIC_LOGE("Surface producer init failed.");
+        return false;
+    }
+#else
+    // Single process: producer surfaces are created via CreateSurfaceProxy
+    // and never pass through Init.
+    GRAPHIC_LOGE("Init failed: producer initialization is unsupported in single process mode.");
+    return false;
+#endif
     return true;
 }
 
@@ -251,6 +278,32 @@ void SurfaceImpl::UnregisterConsumerListener()
     bufferQueueProducer->UnregisterConsumerListener();
 }
 
+uint64_t SurfaceImpl::GetSurfaceId() const
+{
+    return surfaceId_;
+}
+
+int32_t SurfaceImpl::AttachBuffer(SurfaceBuffer* buffer, bool isReusable)
+{
+    RETURN_VAL_IF_FAIL(producer_, SURFACE_ERROR_INVALID_PARAM);
+    RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
+    return producer_->AttachBuffer(reinterpret_cast<SurfaceBufferImpl*>(buffer), isReusable);
+}
+
+void SurfaceImpl::RegisterProducerListener(IProducerListener& listener)
+{
+    RETURN_IF_FAIL(producer_);
+    producer_->RegisterProducerListener(listener);
+}
+
+void SurfaceImpl::UnregisterProducerListener()
+{
+    RETURN_IF_FAIL(producer_);
+    producer_->UnregisterProducerListener();
+}
+
+
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 void SurfaceImpl::WriteIoIpcIo(IpcIo& io)
 {
     WriteRemoteObject(&io, &sid_);
@@ -287,4 +340,5 @@ Surface* SurfaceImpl::GenericSurfaceByIpcIo(IpcIo& io)
     }
     return nullptr;
 }
+#endif // SURFACE_LITE_SINGLE_PROCESS
 } // namespace OHOS

@@ -16,11 +16,14 @@
 #include "buffer_queue_producer.h"
 
 #include "buffer_common.h"
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 #include "buffer_manager.h"
+#endif
 #include "buffer_queue.h"
 #include "surface_buffer_impl.h"
 
 namespace OHOS {
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 const int32_t DEFAULT_IPC_SIZE = 100;
 
 extern "C" {
@@ -220,6 +223,7 @@ static IpcMsgHandle g_ipcMsgHandleList[] = {
     OnSetUserData,        // SET_USER_DATA
     OnGetUserData,        // GET_USER_DATA
 };
+#endif // SURFACE_LITE_SINGLE_PROCESS
 
 BufferQueueProducer::BufferQueueProducer(BufferQueue* bufferQueue)
     : bufferQueue_(bufferQueue),
@@ -258,6 +262,7 @@ int32_t BufferQueueProducer::FlushBuffer(SurfaceBufferImpl* buffer)
 {
     RETURN_VAL_IF_FAIL(buffer, SURFACE_ERROR_INVALID_PARAM);
     RETURN_VAL_IF_FAIL(bufferQueue_, SURFACE_ERROR_INVALID_PARAM);
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     BufferManager* manager = BufferManager::GetInstance();
     RETURN_VAL_IF_FAIL(manager, SURFACE_ERROR_NOT_READY);
     if (buffer->GetUsage() == BUFFER_CONSUMER_USAGE_HARDWARE_CONSUMER_CACHE) {
@@ -267,6 +272,7 @@ int32_t BufferQueueProducer::FlushBuffer(SurfaceBufferImpl* buffer)
             return ret;
         }
     }
+#endif
     return EnqueueBuffer(*buffer);
 }
 
@@ -363,13 +369,21 @@ uint32_t BufferQueueProducer::GetUsage()
 void BufferQueueProducer::RegisterConsumerListener(IBufferConsumerListener& listener)
 {
     consumerListener_ = &listener;
+    if (bufferQueue_ != nullptr) {
+        // Mirror on the queue so that the attach bypass path fires the same listener.
+        bufferQueue_->RegisterConsumerListener(&listener);
+    }
 }
 
 void BufferQueueProducer::UnregisterConsumerListener()
 {
     consumerListener_ = nullptr;
+    if (bufferQueue_ != nullptr) {
+        bufferQueue_->UnregisterConsumerListener();
+    }
 }
 
+#ifndef SURFACE_LITE_SINGLE_PROCESS
 int32_t BufferQueueProducer::OnIpcMsg(uint32_t code, IpcIo *data, IpcIo *reply, MessageOption option)
 {
     if (data == NULL) {
@@ -382,6 +396,32 @@ int32_t BufferQueueProducer::OnIpcMsg(uint32_t code, IpcIo *data, IpcIo *reply, 
         return SURFACE_ERROR_INVALID_REQUEST;
     }
     return g_ipcMsgHandleList[code](this, data, reply);
+}
+#endif // SURFACE_LITE_SINGLE_PROCESS
+
+bool BufferQueueProducer::IsQueueFull()
+{
+    RETURN_VAL_IF_FAIL(bufferQueue_, false);
+    return bufferQueue_->IsQueueFull();
+}
+
+int32_t BufferQueueProducer::AttachBuffer(SurfaceBufferImpl* buffer, bool isReusable)
+{
+    RETURN_VAL_IF_FAIL(bufferQueue_, SURFACE_ERROR_INVALID_PARAM);
+    RETURN_VAL_IF_FAIL(buffer != nullptr, SURFACE_ERROR_INVALID_PARAM);
+    return bufferQueue_->AttachBuffer(buffer, isReusable);
+}
+
+void BufferQueueProducer::RegisterProducerListener(IProducerListener& listener)
+{
+    RETURN_IF_FAIL(bufferQueue_);
+    bufferQueue_->RegisterProducerListener(&listener);
+}
+
+void BufferQueueProducer::UnregisterProducerListener()
+{
+    RETURN_IF_FAIL(bufferQueue_);
+    bufferQueue_->UnregisterProducerListener();
 }
 
 void BufferQueueProducer::SetUserData(const std::string& key, const std::string& value)

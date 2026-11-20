@@ -31,12 +31,14 @@ namespace OHOS {
  */
 class SurfaceImpl : public Surface {
 public:
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief Generic Surface from ipc io, used for producer on multi process.
      * @param [in] IpcIo io. Consumer surface sid, ipc sending request param.
      * @returns Surface pointer.
      */
     static Surface* GenericSurfaceByIpcIo(IpcIo& io);
+#endif
 
     /**
      * @brief Surface Constructor, used for consumer.
@@ -204,6 +206,37 @@ public:
      *        there will have no listener.
      */
     void UnregisterConsumerListener() override;
+
+    /**
+     * @brief Get the global unique id of this surface (allocated at construction).
+     *        Producers address the surface through this id (CreateSurfaceAsProducer).
+     * @returns the global surface id; returns <b>0</b> if unavailable (producer
+     *          proxies report the consumer surface id instead).
+     */
+    uint64_t GetSurfaceId() const override;
+
+    /**
+     * @brief Attach an externally allocated (driver-owned) buffer.
+     * @param [in] buffer, the wrapper created by SurfaceBuffer::CreateSurfaceBuffer.
+     * @param [in] isReusable, whether the wrapper is returned to the producer on release.
+     * @returns 0 if succeed; error code otherwise.
+     */
+    int32_t AttachBuffer(SurfaceBuffer* buffer, bool isReusable) override;
+
+    /**
+     * @brief Register producer listener, mirrored on the shared buffer queue.
+     *        The listener is invoked when a buffer becomes idle (OnBufferReleased)
+     *        and when the consumer surface is destroyed (OnConsumerSurfaceDestroyed).
+     * @param [in] listener, IProducerListener listener.
+     */
+    void RegisterProducerListener(IProducerListener& listener) override;
+
+    /**
+     * @brief Unregister producer listener.
+     */
+    void UnregisterProducerListener() override;
+
+#ifndef SURFACE_LITE_SINGLE_PROCESS
     /**
      * @brief Serialize Surface attr to IpcIo.
      * @param [out], IpcIo.
@@ -217,6 +250,7 @@ public:
      * @returns 0 is succeed; other is failed.
      */
     int32_t DoIpcMsg(uint32_t code, IpcIo* data, IpcIo* reply, MessageOption option);
+#endif
 
     /**
      * @brief Surface init succeed or not
@@ -226,6 +260,13 @@ public:
 
 private:
     /**
+     * @brief Consumer-side init: queue, shared producer and consumer objects.
+     * @returns Init succeed return true, else return false.
+     */
+    bool InitConsumer();
+
+#ifndef SURFACE_LITE_SINGLE_PROCESS
+    /**
      * @brief SurfaceImpl Constructor, used for producer on multi process.
      * @param [in] SvcIdentity. Consumer sid, ipc sending request param.
      * @returns Surface pointer.
@@ -234,9 +275,12 @@ private:
     static int32_t IpcRequestHandler(uint32_t code, IpcIo* data, IpcIo* reply, MessageOption option);
     SvcIdentity sid_;
     IpcObjectStub objectStub_;
+#endif
     BufferQueueConsumer* consumer_;
     BufferProducer* producer_;
     bool IsConsumer_;
+    friend class SurfaceUtils;
+    uint64_t surfaceId_ = 0;
 };
 } // end namespace
 #endif
