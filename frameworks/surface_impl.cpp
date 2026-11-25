@@ -117,13 +117,13 @@ bool SurfaceImpl::Init()
         GRAPHIC_LOGE("Surface producer init failed.");
         return false;
     }
+    return true;
 #else
     // Single process: producer surfaces are created via CreateSurfaceProxy
     // and never pass through Init.
     GRAPHIC_LOGE("Init failed: producer initialization is unsupported in single process mode.");
     return false;
 #endif
-    return true;
 }
 
 void SurfaceImpl::SetWidthAndHeight(uint32_t width, uint32_t height)
@@ -212,7 +212,7 @@ void SurfaceImpl::SetQueueSize(uint8_t queueSize)
 
 uint8_t SurfaceImpl::GetQueueSize()
 {
-    RETURN_VAL_IF_FAIL(producer_, SURFACE_ERROR_INVALID_PARAM);
+    RETURN_VAL_IF_FAIL(producer_, static_cast<uint8_t>(SURFACE_ERROR_INVALID_PARAM));
     uint8_t queueSize = producer_->GetQueueSize();
     return queueSize;
 }

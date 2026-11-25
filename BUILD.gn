@@ -72,8 +72,10 @@ if (ohos_kernel_type == "liteos_m") {
     public_configs = [ ":surface_public_config" ]
     public_deps = [ "//foundation/graphic/graphic_utils_lite:utils_lite" ]
     deps = [ "//third_party/bounds_checking_function:libsec_static" ] + surface_extra_deps
-    cflags = [ "-fPIC" ]
-    cflags += [ "-Wall" ]
+    cflags = []
+    if (board_toolchain_type != "iccarm") {
+      cflags += [ "-fPIC", "-Wall" ]
+    }
     cflags_cc = cflags
   }
 } else {
